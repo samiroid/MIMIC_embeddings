@@ -1,10 +1,11 @@
+import argparse
 import pandas as pd
 import os
 from sklearn.linear_model import SGDClassifier 
 from sklearn.metrics import f1_score, confusion_matrix, roc_auc_score, auc, precision_recall_curve
 from sklearn.metrics import precision_recall_fscore_support as score
 from tadat import core
-from mimic.vectorize import extract_features
+from .vectorize import extract_features
 
 
 GROUPS = { "GENDER": ["M","F"],   
@@ -232,3 +233,38 @@ def run(data_path, dataset, feature_type, metric, pos_label=1):
         df_results.to_csv(data_path+"/out/"+feature_type.lower(), index=False, mode="a", header=False)
 
     return df_results
+
+def cmdline_args():
+    parser = argparse.ArgumentParser(description="Extract MIMIC data ")
+    parser.add_argument('-tasks', type=str, required=True, help='path to tasks data')    
+    parser.add_argument('-data', type=str, required=True, help='path to data')       
+    parser.add_argument('-metric', type=str, required=True, help='metric')    
+    parser.add_argument('-feature', type=str, required=True, help='feature type')    
+    parser.add_argument('-probe', choices=["clinical", "demographics"], default="clinical", 
+                        help='feature type')    
+        
+    return parser.parse_args()	
+
+def clinical_probe(data_path, tasks_path, feature_type, metric):
+    
+    tasks  = read_tasks(tasks_path, True)
+    for dataset in tasks:
+        run(data_path, dataset, feature_type, metric)
+
+def demographics_probe(data_path, tasks_path, feature_type, metric):
+    tasks  = read_tasks(tasks_path, True)
+    metric = "macroF1"
+    for dataset, pos_label in zip(tasks, ["M","WHITE","WHITE"]):
+        run(data_path, dataset, feature_type, metric, pos_label=pos_label)
+    
+
+if __name__ == "__main__":
+    args = cmdline_args()
+    if args.probe == "clinical":
+        clinical_probe(args.data, args.tasks, args.feature, args.metric)
+    elif args.probe == "demographics":
+        demographics_probe(args.data, args.tasks, args.feature, args.metric)
+    else:
+        NotImplementedError
+
+    
