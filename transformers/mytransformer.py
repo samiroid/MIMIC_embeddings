@@ -68,6 +68,7 @@ class TransformerModel(nn.Module):
         pprint.pprint(conf)        
         self.conf = conf
         self.vocab_size=vocab_size
+        self.epochs = conf["epochs"]
         self.lr = conf["lr"]
         self.emb_size = conf["emb_size"]
         self.pos_encoder = PositionalEncoding(self.emb_size, conf["dropout"])        
@@ -103,39 +104,54 @@ class TransformerModel(nn.Module):
         output = self.transformer_encoder(src, src_key_padding_mask=src_key_pad_mask)
         return output
 
-    def fit(self, dataloader):
+    def fit(self, train_dataloader, val_dataloader):
         self.train() # Turn on the train mode
         total_loss = 0.
         start_time = time.time()
-        n_batches = len(dataloader.dataset) // dataloader.batch_size
-        
-        for i, batch in enumerate(dataloader):
-            data, X, Y, src_mask = batch            
-            data = data.to(self.device)
-            Y = Y.to(self.device)
-            src_mask = src_mask.to(self.device)
-            self.optimizer.zero_grad()            
-            output = self.forward(data)            
-            batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
-            preds = output[batch_idx,X,:].view(-1, self.vocab_size)                        
-            loss = self.criterion(preds, Y.view(-1))
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
-            self.optimizer.step()
-            total_loss += loss.item()
-            log_interval = 5
-            if i % log_interval == 0 and i > 0:
-                cur_loss = total_loss / log_interval
-                elapsed = time.time() - start_time
-                print('|{:5d}/{:5d} batches | '
-                    'lr {:02.2f} | ms/batch {:5.2f} | '
-                    'loss {:5.2f} | ppl {:8.2f}'.format(
-                         i, n_batches, self.scheduler.get_last_lr()[0],
-                        elapsed * 1000 / log_interval,
-                        cur_loss, math.exp(cur_loss)))
-                total_loss = 0
-                start_time = time.time()
-        self.scheduler.step()
+        n_batches = len(train_dataloader.dataset) // train_dataloader.batch_size
+        best_model = None
+        best_val_loss = float("inf")
+        for epoch in range(1, self.epochs + 1):
+            epoch_start_time = time.time()
+            for i, batch in enumerate(train_dataloader):
+                data, X, Y, src_mask = batch            
+                data = data.to(self.device)
+                Y = Y.to(self.device)
+                src_mask = src_mask.to(self.device)
+                self.optimizer.zero_grad()            
+                output = self.forward(data)            
+                batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
+                preds = output[batch_idx,X,:].view(-1, self.vocab_size)                        
+                loss = self.criterion(preds, Y.view(-1))
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
+                self.optimizer.step()
+                total_loss += loss.item()
+                log_interval = 5
+                if i % log_interval == 0 and i > 0:
+                    cur_loss = total_loss / log_interval
+                    elapsed = time.time() - start_time
+                    print('|{:5d}/{:5d} batches | '
+                        'lr {:02.2f} | ms/batch {:5.2f} | '
+                        'loss {:5.2f} | ppl {:8.2f}'.format(
+                            i, n_batches, self.scheduler.get_last_lr()[0],
+                            elapsed * 1000 / log_interval,
+                            cur_loss, math.exp(cur_loss)))
+                    total_loss = 0
+                    start_time = time.time()
+            self.scheduler.step()
+            # model.fit(train_data)
+            val_loss = self.evaluate(val_dataloader)
+            print('-' * 89)
+            print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
+                'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
+                                            val_loss, math.exp(val_loss)))
+            print('-' * 89)
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_model = self.state_dict() 
+        #load best parameters
+        self.load_state_dict(best_model)
 
     def evaluate(self, dataloader):
         self.eval() # Turn on the evaluation mode

@@ -10,6 +10,6 @@ python transformers/train_mlm.py -input $INPUT_PATH -output $OUTPUT_PATH \
                                 -tok_path $TOK_PATH -conf_path $CONF_PATH \
                                 -dataset $DATASET \
                                 -load $TRAINED_MODEL \
+                                -train \
                                 -test
-                                # -train \
                                 

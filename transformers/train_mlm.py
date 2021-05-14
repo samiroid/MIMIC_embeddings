@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch
+
 import argparse
 import json
 import time
@@ -11,44 +12,6 @@ from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
 import os
 from mytransformer import TransformerModel, MLMDataset, save_model, load_model
-
-def train(conf, vocab_size, device, train_data, val_data):            
-    model = TransformerModel(vocab_size, conf=conf, device=device).to(device)
-    best_val_loss = float("inf")
-    epochs = conf["epochs"] # The number of epochs
-    best_model = None
-    model = model.to(device)    
-    # loop over epochs
-    for epoch in range(1, epochs + 1):
-        epoch_start_time = time.time()
-        model.fit(train_data)
-        val_loss = model.evaluate(val_data)
-        print('-' * 89)
-        print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
-            'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                        val_loss, math.exp(val_loss)))
-        print('-' * 89)
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model = model        
-    
-    # test(best_model, test_data)
-    # test_loss = best_model.evaluate(test_data)
-    # print('=' * 89)
-    # print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
-    #     test_loss, math.exp(test_loss)))
-    # print('=' * 89)
-
-    return best_model
-
-def test(model, test_data):    
-    test_loss = model.evaluate(test_data)
-    print('=' * 89)
-    print('test loss {:5.2f} | test ppl {:8.2f}'.format(
-        test_loss, math.exp(test_loss)))
-    print('=' * 89)
-
-    return test_loss
 
 def cmdline_args():
     parser = argparse.ArgumentParser(description="train MLM")
@@ -67,7 +30,8 @@ def cmdline_args():
     parser.add_argument('-device', type=str, default="auto", help='device')
     return parser.parse_args()	
 
-if __name__ == "__main__":
+def main():
+
     args = cmdline_args()
     dirname = os.path.dirname(args.output)
     if not os.path.exists(dirname):
@@ -83,6 +47,8 @@ if __name__ == "__main__":
         print("> training")
         with open(args.conf_path) as fi:
             conf = json.load(fi)
+        #fix random seed
+        torch.manual_seed(conf["random_seed"])
         run_id = conf["id"]
         pin_mem = conf["pin_memory"] if conf["pin_memory"] else False
         n_workers = conf["data_loader_workers"] if conf["data_loader_workers"] else 4
@@ -96,7 +62,10 @@ if __name__ == "__main__":
         # the size of vocabulary
         vocab_size = len(tokenizah.get_vocab()) 
         print(f"vocab size: {vocab_size}")
-        model = train(conf, vocab_size, device, train_data, val_data)
+        model = TransformerModel(vocab_size, conf=conf, device=device).to(device)    
+        model = model.to(device)    
+        # train model
+        model.fit(train_data, val_data)    
         outpath = f"{args.output}model_{args.dataset}_{run_id}.pt"
         save_model(model, outpath)
     
@@ -107,7 +76,13 @@ if __name__ == "__main__":
             print("loading model @ {args.load}")
             model = load_model(args.load, device)
             model = model.to(device)
-
         data_path = args.input + args.dataset
         test_data = DataLoader(MLMDataset(data_path, "test"), shuffle=False, num_workers=4)
-        test(model, test_data)
+        test_loss = model.evaluate(test_data)
+        print('=' * 89)
+        print('test loss {:5.2f} | test ppl {:8.2f}'.format(
+            test_loss, math.exp(test_loss)))
+        print('=' * 89)    
+
+if __name__ == "__main__":
+    main()
