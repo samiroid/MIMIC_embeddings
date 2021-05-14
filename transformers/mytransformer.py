@@ -4,11 +4,9 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import time
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
+import pprint
 
 class MLMDataset(Dataset):  
   def __init__(self, path, partition):
@@ -60,22 +58,23 @@ class TransformerModel(nn.Module):
         "decay_gamma":0.95
 }
 
-    def __init__(self, ntokens, conf=DEFAULT_CONF, device=None):
-        super(TransformerModel, self).__init__()
+    def __init__(self, vocab_size, conf=DEFAULT_CONF, device=None):
+        super(TransformerModel, self).__init__()        
         if device:
             self.device = device
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model_type = 'Transformer'        
-        self.ntokens=ntokens
+        print(f"> init transformer @ {self.device}")
+        pprint.pprint(conf)        
+        self.vocab_size=vocab_size
         self.lr = conf["lr"]
         self.emb_size = conf["emb_size"]
         self.pos_encoder = PositionalEncoding(self.emb_size, conf["dropout"])        
         encoder_layers = TransformerEncoderLayer(self.emb_size, conf["nhead"], 
                                                 conf["hidden_size"], conf["dropout"])
         self.transformer_encoder = TransformerEncoder(encoder_layers, conf["nlayers"])
-        self.embedding = nn.Embedding(self.ntokens, self.emb_size)
-        self.decoder = nn.Linear(self.emb_size, self.ntokens)
+        self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
+        self.decoder = nn.Linear(self.emb_size, self.vocab_size)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
         # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1.0, gamma=0.95)
@@ -103,8 +102,11 @@ class TransformerModel(nn.Module):
         return output
     
     def encode(self, src, src_key_pad_mask=None):
+        #embed and rescale
         src = self.embedding(src) * math.sqrt(self.emb_size)
+        #add positional encoding    
         src = self.pos_encoder(src)
+        #transformer blocks
         output = self.transformer_encoder(src, src_key_padding_mask=src_key_pad_mask)
         return output
 
@@ -122,7 +124,7 @@ class TransformerModel(nn.Module):
             self.optimizer.zero_grad()            
             output = self.forward(data)            
             batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
-            preds = output[batch_idx,X,:].view(-1, self.ntokens)                        
+            preds = output[batch_idx,X,:].view(-1, self.vocab_size)                        
             loss = self.criterion(preds, Y.view(-1))
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
@@ -153,7 +155,7 @@ class TransformerModel(nn.Module):
                 src_mask = src_mask.to(self.device)
                 output = self.forward(data)
                 batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
-                preds = output[batch_idx,X,:].view(-1, self.ntokens)
-                # output_flat = output.view(-1, self.ntokens)
+                preds = output[batch_idx,X,:].view(-1, self.vocab_size)
+                # output_flat = output.view(-1, self.vocab_size)
                 total_loss += len(data) * self.criterion(preds, Y.view(-1)).item()
         return total_loss / (len(dataloader.dataset) - 1)

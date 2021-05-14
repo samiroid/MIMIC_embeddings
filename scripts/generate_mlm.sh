@@ -5,7 +5,7 @@ TOK_PATH=$BASE_PATH"DATA/pretrain/tokenizer.json"
 
                    
 python transformers/generate_mlm_data.py -input $NOTES_PATH -output $FEATS_PATH \
-                   -tok_path $TOK_PATH \
                    -vectorize \
-                #    -create_mlm \
-                #    -build_tokenizer \
+                   -create_mlm \
+                   -build_tokenizer \
+                  #  -tok_path $TOK_PATH \
