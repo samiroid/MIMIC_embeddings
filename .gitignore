@@ -132,3 +132,6 @@ raw_data/*
 
 .data/*
 .vscode/settings.json
+bkp/gen.py
+bkp/old_mytransformer.py
+bkp/old_train_transformer.py

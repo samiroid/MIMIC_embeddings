@@ -23,7 +23,7 @@ MAX_SEQ_LEN=512
 MaskedLmInstance = collections.namedtuple("MaskedLmInstance",
                                           ["index", "label"])
 
-#lifted from https://github.com/MLforHealth/HurtfulWords
+#adapted from https://github.com/MLforHealth/HurtfulWords
 def create_masked_lm_predictions(tokens, masked_lm_prob, max_predictions_per_seq,  vocab_list):
     """Creates the predictions for the masked LM objective. This is mostly copied from the Google BERT repo, but with several refactors to clean it up and remove a lot of unnecessary variables."""
     cand_indices = []
@@ -93,24 +93,27 @@ def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.15):
     vocab = [*tokenizah.get_vocab()]
     instances = []
     for doc in dataset:
-            sentences = doc.split("[SEP]")
-            for s in sentences:
-                tokens = tokenizah.encode(s).tokens[:max_seq_len]
-                # set_trace()
-                masked_tokens = tokens.copy()
-                z = create_masked_lm_predictions(masked_tokens, mask_prob, max_preds, vocab)                
-                masked_tokens, masked_indices, masked_token_labels = z
+        sentences = doc.split("[SEP]")
+        for s in sentences:
+            #truncate and leave room for [CLS] and [SEP]
+            tokens = tokenizah.encode(s).tokens[:max_seq_len-2] 
+            tokens = ["[CLS]"]+tokens+["[SEP]"]
+            # set_trace()
+            masked_tokens = tokens.copy()
+            z = create_masked_lm_predictions(masked_tokens, mask_prob, max_preds, vocab)                
+            masked_tokens, masked_indices, masked_token_labels = z
 
-                x = {"tokens":tokens,
-                    "masked_tokens":masked_tokens,
-                    "masked_token_labels":masked_token_labels,
-                    "masked_indices":masked_indices,
-                    "len":len(masked_tokens)}
-                instances.append(x)
+            x = {"tokens":tokens,
+                "masked_tokens":masked_tokens,
+                "masked_token_labels":masked_token_labels,
+                "masked_indices":masked_indices,
+                "len":len(masked_tokens)}
+            instances.append(x)
     return instances
     
 
-def create_mlm_data(input_path, output_path,tokenizah, max_seq_len, max_preds=20, mask_prob=0.15, test_split=0.2, val_split=0.2 ):   
+def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len, max_preds=20, 
+                    mask_prob=0.15, test_split=0.2, val_split=0.2 ):   
     
     df = pd.read_csv(input_path, sep="\t")
     N = len(df)
@@ -126,10 +129,10 @@ def create_mlm_data(input_path, output_path,tokenizah, max_seq_len, max_preds=20
     print("test: ", len(test_docs))
     print("val: ", len(val_docs))
     
-    for dataset, dname in zip([train_docs, test_docs, val_docs], ["train","test","val"]):
-        instances = get_mlm(dataset, tokenizah, max_seq_len, max_preds, mask_prob)
+    for data, sp in zip([train_docs, test_docs, val_docs], ["train","test","val"]):
+        instances = get_mlm(data, tokenizah, max_seq_len, max_preds, mask_prob)
         df = pd.DataFrame(instances)
-        df.to_csv(f"{output_path}mlm_{dname}.csv")
+        df.to_csv(f"{output_path}{dataset}_{sp}.csv")
 
 def feats(row, max_seq_len, max_preds, tokenizah):
     tokens = ast.literal_eval(row["masked_tokens"])
@@ -168,13 +171,13 @@ def feats(row, max_seq_len, max_preds, tokenizah):
 
     return token_ids, label_ids, attention_mask, masked_indices
 
-def vectorize(path,tokenizah, max_seq_len, max_preds):    
+def vectorize(path, dataset, tokenizah, max_seq_len, max_preds):    
     splits = ["train","val","test"]
-    fpath = "{}mlm_{}.csv"    
-    df = pd.read_csv(fpath.format(path, "train"))
+    fpath = "{}{}_{}.csv"    
+    df = pd.read_csv(fpath.format(path, dataset, "train"))
     # max_seq_len = df["len"].max()
     for sp in splits:
-        df = pd.read_csv(fpath.format(path, sp))
+        df = pd.read_csv(fpath.format(path, dataset, sp))
         tokens = []
         labels = []
         attention_masks = []    
@@ -191,10 +194,10 @@ def vectorize(path,tokenizah, max_seq_len, max_preds):
         attention_masks = np.vstack(attention_masks)
         masked_indices = np.vstack(masked_indices)
         
-        np.save(f"{path}{sp}_tokens",tokens)
-        np.save(f"{path}{sp}_labels",labels)
-        np.save(f"{path}{sp}_mask",attention_masks)
-        np.save(f"{path}{sp}_x",masked_indices)
+        np.save(f"{path}{dataset}_{sp}_tokens",tokens)
+        np.save(f"{path}{dataset}_{sp}_labels",labels)
+        np.save(f"{path}{dataset}_{sp}_mask",attention_masks)
+        np.save(f"{path}{dataset}_{sp}_x",masked_indices)
     # set_trace()
 def train_tokenizer(docs, ent_ids_path, outpath):
     tokenizer = Tokenizer(WordPiece(unk_token="[UNK]"))
@@ -202,11 +205,9 @@ def train_tokenizer(docs, ent_ids_path, outpath):
     tokenizer.decoder = decoders.WordPiece()
     #read list of codes
     with open(ent_ids_path, "r") as fi:
-        ent_ids = [x.replace("\n","") for x in fi.readlines()]
-    
-    special_tokens = ["[CLS]", "[SEP]", "[UNK]", "[PAD]", "[MASK]"] + ent_ids
-    print(special_tokens)
-    trainer = WordPieceTrainer(special_tokens=special_tokens, vocab_size=5000)
+        ent_ids = [x.replace("\n","") for x in fi.readlines()]    
+    special_tokens = ["[PAD]", "[MASK]", "[UNK]", "[CLS]", "[SEP]"] + ent_ids    
+    trainer = WordPieceTrainer(special_tokens=special_tokens, vocab_size=10000)
     
     tokenizer.train_from_iterator(docs, trainer=trainer)
     tokenizer.save(f"{outpath}/tokenizer.json")
@@ -214,7 +215,8 @@ def train_tokenizer(docs, ent_ids_path, outpath):
 
 def cmdline_args():
     parser = argparse.ArgumentParser(description="Generate MLM data from MIMIC notes")
-    parser.add_argument('-input', type=str, required=True, help='path to notes')    
+    parser.add_argument('-input', type=str, required=True, help='path to data')    
+    parser.add_argument('-dataset', type=str, required=True, help='name of dataset')    
     parser.add_argument('-output', type=str, required=True, help='path of the output')    
     parser.add_argument('-tok_path', type=str,  help='path to a trained tokenizer')        
     parser.add_argument('-max_preds', type=int,  default=MAX_PREDS, 
@@ -239,8 +241,8 @@ if __name__ == "__main__":
 
     if args.build_tokenizer:
         print("> training tokenizer")
-        df = pd.read_csv(args.input+"mini_full_notes.csv", sep="\t")
-        df_anno = pd.read_csv(args.input+"mini_full_notes_ner.csv", sep="\t")    
+        df = pd.read_csv(f"{args.input}{args.dataset}.csv", sep="\t")
+        df_anno = pd.read_csv(f"{args.input}{args.dataset}_anno.csv", sep="\t")    
         docs = list(df_anno["ANNO_TEXT"]) + list(df["TEXT"])
         tokenizah = train_tokenizer(docs, args.input+"/ent_ids.txt", args.output)
     
@@ -248,13 +250,12 @@ if __name__ == "__main__":
         print("> create MLM data")        
         if not tokenizah:
             tokenizah = Tokenizer.from_file(args.tok_path)
-        create_mlm_data(args.input+"mini_full_notes_ner.csv", args.output, tokenizah,     
-                        max_seq_len=args.max_seq_len, max_preds=args.max_preds)
+        create_mlm_data(f"{args.input}{args.dataset}_anno.csv", args.output, args.dataset,tokenizah, max_seq_len=args.max_seq_len, max_preds=args.max_preds)
     if args.vectorize:
         print("> vectorize MLM data")
         if not tokenizah:
             tokenizah = Tokenizer.from_file(args.tok_path)
-        vectorize(args.output, tokenizah, max_seq_len=args.max_seq_len, 
+        vectorize(args.output, args.dataset, tokenizah, max_seq_len=args.max_seq_len, 
                     max_preds=args.max_preds)
 
 # notes_path = "/home/silvio/home/projects/MIMIC_embeddings/MIMIC_embeddings/DATA/input/mini_full_notes_ner.csv"    

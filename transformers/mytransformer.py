@@ -11,10 +11,10 @@ import pprint
 class MLMDataset(Dataset):  
   def __init__(self, path, partition):
         assert partition in ["train","test","val"]
-        self.tokens = np.load(f"{path}{partition}_tokens.npy")
-        self.labels = np.load(f"{path}{partition}_labels.npy")
-        self.attention_masks = np.load(f"{path}{partition}_mask.npy")
-        self.x = np.load(f"{path}{partition}_x.npy")
+        self.tokens = np.load(f"{path}_{partition}_tokens.npy")
+        self.labels = np.load(f"{path}_{partition}_labels.npy")
+        self.attention_masks = np.load(f"{path}_{partition}_mask.npy")
+        self.x = np.load(f"{path}_{partition}_x.npy")
         
   def __len__(self):  
         return len(self.tokens)
@@ -66,6 +66,7 @@ class TransformerModel(nn.Module):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"> init transformer @ {self.device}")
         pprint.pprint(conf)        
+        self.conf = conf
         self.vocab_size=vocab_size
         self.lr = conf["lr"]
         self.emb_size = conf["emb_size"]
@@ -86,14 +87,6 @@ class TransformerModel(nn.Module):
         self.embedding.weight.data.uniform_(-initrange, initrange)
         self.decoder.bias.data.zero_()
         self.decoder.weight.data.uniform_(-initrange, initrange)
-
-    # def forward(self, src, src_key_pad_mask=None):
-    #     src = self.embedding(src) * math.sqrt(self.emb_size)
-    #     src = self.pos_encoder(src)
-    #     output = self.transformer_encoder(src, src_key_padding_mask=src_key_pad_mask)
-    #     output = self.decoder(output)
-        
-    #     return output
     
     def forward(self, src, src_key_pad_mask=None):        
         output = self.encode(src, src_key_pad_mask=src_key_pad_mask)
@@ -159,3 +152,19 @@ class TransformerModel(nn.Module):
                 # output_flat = output.view(-1, self.vocab_size)
                 total_loss += len(data) * self.criterion(preds, Y.view(-1)).item()
         return total_loss / (len(dataloader.dataset) - 1)
+
+def save_model(model, path):
+    print(f"> saving model @ {path}")
+    torch.save({
+        "conf": model.conf,
+        "vocab_size": model.vocab_size,
+        "model_state_dict": model.state_dict()
+    }, path)
+
+def load_model(path, device=None):
+    print(f"> loading model @ {path}")
+    chkpt = torch.load(path)
+    model = TransformerModel(chkpt["vocab_size"], chkpt["conf"], device)
+    model.load_state_dict(chkpt["model_state_dict"]) 
+    return model
+    

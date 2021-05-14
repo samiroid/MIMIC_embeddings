@@ -10,7 +10,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
 import os
-from mytransformer import TransformerModel, MLMDataset
+from mytransformer import TransformerModel, MLMDataset, save_model, load_model
 
 def train(conf, vocab_size, device, train_data, val_data):            
     model = TransformerModel(vocab_size, conf=conf, device=device).to(device)
@@ -32,7 +32,7 @@ def train(conf, vocab_size, device, train_data, val_data):
             best_val_loss = val_loss
             best_model = model        
     
-    test(best_model, test_data)
+    # test(best_model, test_data)
     # test_loss = best_model.evaluate(test_data)
     # print('=' * 89)
     # print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
@@ -41,11 +41,10 @@ def train(conf, vocab_size, device, train_data, val_data):
 
     return best_model
 
-def test(model, test_data):
-    
+def test(model, test_data):    
     test_loss = model.evaluate(test_data)
     print('=' * 89)
-    print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
+    print('test loss {:5.2f} | test ppl {:8.2f}'.format(
         test_loss, math.exp(test_loss)))
     print('=' * 89)
 
@@ -54,6 +53,7 @@ def test(model, test_data):
 def cmdline_args():
     parser = argparse.ArgumentParser(description="train MLM")
     parser.add_argument('-input', type=str, required=True, help='path to data')    
+    parser.add_argument('-dataset', type=str, required=True, help='name of the dataset')    
     parser.add_argument('-output', type=str, required=True, help='path to output')    
     parser.add_argument('-tok_path', type=str, required=True, 
                         help='path to a trained tokenizer')        
@@ -78,28 +78,36 @@ if __name__ == "__main__":
     else:
         device = torch.device(args.device)
     model = None
+    
     if args.train:
         print("> training")
         with open(args.conf_path) as fi:
             conf = json.load(fi)
+        run_id = conf["id"]
         pin_mem = conf["pin_memory"] if conf["pin_memory"] else False
         n_workers = conf["data_loader_workers"] if conf["data_loader_workers"] else 4
         bsize = conf["batch_size"]
-        train_data = DataLoader(MLMDataset(args.input, "train"), batch_size=bsize,
+        data_path = args.input + args.dataset
+        train_data = DataLoader(MLMDataset(data_path, "train"), batch_size=bsize,
                                 shuffle=True, num_workers=n_workers, pin_memory=pin_mem)    
-        val_data = DataLoader(MLMDataset(args.input, "val"), shuffle=False,
+        val_data = DataLoader(MLMDataset(data_path, "val"), shuffle=False,
                                         num_workers=n_workers)
         tokenizah = Tokenizer.from_file(args.tok_path)
         # the size of vocabulary
         vocab_size = len(tokenizah.get_vocab()) 
         print(f"vocab size: {vocab_size}")
         model = train(conf, vocab_size, device, train_data, val_data)
+        outpath = f"{args.output}model_{args.dataset}_{run_id}.pt"
+        save_model(model, outpath)
     
     if args.test:
         print("> test")
-        if not model:
-            model = None #load model
-            print("need model...")
-        else:
-            test_data = DataLoader(MLMDataset(args.input, "test"), shuffle=False, num_workers=4)
+        if not model:                        
+            assert args.load 
+            print("loading model @ {args.load}")
+            model = load_model(args.load, device)
+            model = model.to(device)
 
+        data_path = args.input + args.dataset
+        test_data = DataLoader(MLMDataset(data_path, "test"), shuffle=False, num_workers=4)
+        test(model, test_data)
