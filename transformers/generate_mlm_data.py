@@ -18,7 +18,7 @@ from tokenizers.trainers import WordPieceTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
 import os
-MAX_PREDS=20
+MAX_PREDS=50
 MAX_SEQ_LEN=512
 MIN_SEQ_LEN=20
 

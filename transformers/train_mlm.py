@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch
-
+# import simplelogging
 import argparse
 import json
 import time
@@ -23,6 +23,8 @@ def cmdline_args():
     parser.add_argument('-load', type=str, help='path to trained model')        
     parser.add_argument('-conf_path', type=str, required=True, 
                         help='path to a config file')        
+    parser.add_argument('-checkpoint_path', type=str, help='path to save checkpoints')        
+    parser.add_argument('-train_log_path', type=str, help='path save training log')        
     parser.add_argument('-train', action="store_true",
                          help='train model')      
     parser.add_argument('-test', action="store_true",
@@ -31,6 +33,8 @@ def cmdline_args():
     return parser.parse_args()	
 
 def main():
+    # log = simplelogging.get_logger(console_format="%(message)s")
+    # log = simplelogging.get_logger()
 
     args = cmdline_args()
     dirname = os.path.dirname(args.output)
@@ -62,7 +66,15 @@ def main():
         # the size of vocabulary
         vocab_size = len(tokenizah.get_vocab()) 
         print(f"vocab size: {vocab_size}")
-        model = TransformerModel(vocab_size, conf=conf, device=device).to(device)    
+        if args.checkpoint_path:
+            print(f"checkpoint @ {args.checkpoint_path}")
+            model = TransformerModel(vocab_size, conf=conf, device=device, 
+                                    checkpoint_path=args.checkpoint_path)
+            #load checkpoint
+            model.load_checkpoint()
+        else:
+            model = TransformerModel(vocab_size, conf=conf, device=device)            
+        
         model = model.to(device)    
         # train model
         model.fit(train_data, val_data)    
