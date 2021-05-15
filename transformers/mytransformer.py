@@ -9,12 +9,12 @@ import time
 import pprint
 
 class MLMDataset(Dataset):  
-  def __init__(self, path, partition):
+  def __init__(self, fname, partition):
         assert partition in ["train","test","val"]
-        self.tokens = np.load(f"{path}_{partition}_tokens.npy")
-        self.labels = np.load(f"{path}_{partition}_labels.npy")
-        self.attention_masks = np.load(f"{path}_{partition}_mask.npy")
-        self.x = np.load(f"{path}_{partition}_x.npy")
+        self.tokens = np.load(f"{fname}_{partition}_tokens.npy")
+        self.labels = np.load(f"{fname}_{partition}_labels.npy")
+        self.attention_masks = np.load(f"{fname}_{partition}_mask.npy")
+        self.x = np.load(f"{fname}_{partition}_x.npy")
         
   def __len__(self):  
         return len(self.tokens)

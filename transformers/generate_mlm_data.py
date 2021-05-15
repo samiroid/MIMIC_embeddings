@@ -1,5 +1,6 @@
 import argparse
 import math
+from sys import set_asyncgen_hooks
 import torch
 from tokenizers import Tokenizer
 import time
@@ -19,6 +20,7 @@ from tokenizers.pre_tokenizers import Whitespace
 import os
 MAX_PREDS=20
 MAX_SEQ_LEN=512
+MIN_SEQ_LEN=20
 
 MaskedLmInstance = collections.namedtuple("MaskedLmInstance",
                                           ["index", "label"])
@@ -27,8 +29,10 @@ MaskedLmInstance = collections.namedtuple("MaskedLmInstance",
 def create_masked_lm_predictions(tokens, masked_lm_prob, max_predictions_per_seq,  vocab_list):
     """Creates the predictions for the masked LM objective. This is mostly copied from the Google BERT repo, but with several refactors to clean it up and remove a lot of unnecessary variables."""
     cand_indices = []
+    ignore = set(["[CLS]", "[SEP]", "TIME","DATE","DOCTOR"])
     for (i, token) in enumerate(tokens):
-        if token == "[CLS]" or token == "[SEP]":
+        #do not mask non alphanumeric and special tokens
+        if token in ignore or not token.isalpha():
             continue
         # Whole Word Masking means that if we mask all of the wordpieces
         # corresponding to an original word. When a word has been split into
@@ -92,28 +96,50 @@ def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.15):
     #unpack list of keys from vocabulary (dict)
     vocab = [*tokenizah.get_vocab()]
     instances = []
-    for doc in dataset:
-        sentences = doc.split("[SEP]")
-        for s in sentences:
-            #truncate and leave room for [CLS] and [SEP]
-            tokens = tokenizah.encode(s).tokens[:max_seq_len-2] 
-            tokens = ["[CLS]"]+tokens+["[SEP]"]
-            # set_trace()
-            masked_tokens = tokens.copy()
-            z = create_masked_lm_predictions(masked_tokens, mask_prob, max_preds, vocab)                
-            masked_tokens, masked_indices, masked_token_labels = z
+    for x in dataset:
+        notes = x.split("[EON]")
+        #try to pack sentences together
+        sent_accum = ["[CLS]"]
+        last_sent = None
+        for note in notes:                        
+            sentences = note.split("[EOS]")            
+            for s in sentences:
+                tokens = tokenizah.encode(s+" [SEP] ").tokens
+                last_sent = tokens
+                sent_accum += last_sent
+                if len(sent_accum) >= max_seq_len:
+                    #truncate
+                    sent_accum = sent_accum[:max_seq_len-1] + ["[SEP]"]
+                    # set_trace()
+                    z = create_masked_lm_predictions(sent_accum, mask_prob, max_preds, vocab)                
+                    masked_tokens, masked_indices, masked_token_labels = z
 
+                    x = {"tokens":tokens,
+                    "masked_tokens":masked_tokens,
+                    "masked_token_labels":masked_token_labels,
+                    "masked_indices":masked_indices,
+                    "len":len(masked_tokens)}
+                    instances.append(x)
+                    #add last sentence to the beguining of next sequence
+                    sent_accum = ["[CLS]"]+last_sent
+        #last sequence of the patient
+        #only save sequences longer than MIN_SEQ_LEN
+        if len(sent_accum) >= MIN_SEQ_LEN:
+            z = create_masked_lm_predictions(sent_accum, mask_prob, max_preds, vocab)                
+            masked_tokens, masked_indices, masked_token_labels = z
             x = {"tokens":tokens,
-                "masked_tokens":masked_tokens,
-                "masked_token_labels":masked_token_labels,
-                "masked_indices":masked_indices,
-                "len":len(masked_tokens)}
+            "masked_tokens":masked_tokens,
+            "masked_token_labels":masked_token_labels,
+            "masked_indices":masked_indices,
+            "len":len(masked_tokens)}
             instances.append(x)
+        else:
+            print(f"skipped seq size {len(sent_accum)}")    
     return instances
     
 
 def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len, max_preds=20, 
-                    mask_prob=0.15, test_split=0.2, val_split=0.2 ):   
+                    mask_prob=0.15, test_split=0.2, val_split=0.2, anno=True ):   
     
     df = pd.read_csv(input_path, sep="\t")
     N = len(df)
@@ -122,9 +148,14 @@ def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len, ma
     df_test = df.iloc[:test_idx]
     df_val = df.iloc[test_idx:(test_idx+val_idx)]
     df_train = df.iloc[(test_idx+val_idx):]
-    train_docs = df_train["ANNO_TEXT"]
-    test_docs = df_test["ANNO_TEXT"]
-    val_docs = df_val["ANNO_TEXT"]
+    if anno:
+        train_docs = df_train["ANNO_TEXT"]
+        test_docs = df_test["ANNO_TEXT"]
+        val_docs = df_val["ANNO_TEXT"]
+    else:
+        train_docs = df_train["TEXT"]
+        test_docs = df_test["TEXT"]
+        val_docs = df_val["TEXT"]
     print("train: ", len(train_docs))
     print("test: ", len(test_docs))
     print("val: ", len(val_docs))
@@ -204,8 +235,12 @@ def train_tokenizer(docs, ent_ids_path, outpath):
     tokenizer.pre_tokenizer = Whitespace()
     tokenizer.decoder = decoders.WordPiece()
     #read list of codes
-    with open(ent_ids_path, "r") as fi:
-        ent_ids = [x.replace("\n","") for x in fi.readlines()]    
+    ent_ids = []
+    try:
+        with open(ent_ids_path, "r") as fi:
+            ent_ids = [x.replace("\n","") for x in fi.readlines()]    
+    except FileNotFoundError:
+        print("Could not find file with clinical entities")
     special_tokens = ["[PAD]", "[MASK]", "[UNK]", "[CLS]", "[SEP]"] + ent_ids    
     trainer = WordPieceTrainer(special_tokens=special_tokens, vocab_size=10000)
     
@@ -228,7 +263,9 @@ def cmdline_args():
     parser.add_argument('-create_mlm', action="store_true",
                          help='create mlm sequences')       
     parser.add_argument('-vectorize', action="store_true",
-                         help='vectorize mlm sequences')       
+                         help='vectorize mlm sequences')  
+    parser.add_argument('-anno', action="store_true",
+                         help='use annotated data')  
     return parser.parse_args()	
     
 if __name__ == "__main__":
@@ -242,15 +279,23 @@ if __name__ == "__main__":
     if args.build_tokenizer:
         print("> training tokenizer")
         df = pd.read_csv(f"{args.input}{args.dataset}.csv", sep="\t")
-        df_anno = pd.read_csv(f"{args.input}{args.dataset}_anno.csv", sep="\t")    
-        docs = list(df_anno["ANNO_TEXT"]) + list(df["TEXT"])
+        docs = list(df["TEXT"])
+        if args.anno:
+            df_anno = pd.read_csv(f"{args.input}{args.dataset}_anno.csv", sep="\t")    
+            docs += list(df_anno["ANNO_TEXT"])
+
         tokenizah = train_tokenizer(docs, args.input+"/ent_ids.txt", args.output)
     
     if args.create_mlm:
         print("> create MLM data")        
         if not tokenizah:
             tokenizah = Tokenizer.from_file(args.tok_path)
-        create_mlm_data(f"{args.input}{args.dataset}_anno.csv", args.output, args.dataset,tokenizah, max_seq_len=args.max_seq_len, max_preds=args.max_preds)
+        if args.anno:
+            fpath = f"{args.input}{args.dataset}_anno.csv"
+        else:
+            fpath = f"{args.input}{args.dataset}.csv"            
+        create_mlm_data(fpath, args.output, args.dataset,tokenizah, max_seq_len=args.max_seq_len, max_preds=args.max_preds,anno=args.anno)
+        
     if args.vectorize:
         print("> vectorize MLM data")
         if not tokenizah:
