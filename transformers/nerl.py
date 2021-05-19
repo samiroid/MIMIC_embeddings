@@ -5,7 +5,7 @@ from medcat.cat import CAT
 from medcat.utils.vocab import Vocab
 from medcat.cdb import CDB 
 import os
-
+import re
 from tokenizers import Tokenizer, decoders
 from tokenizers.models import WordPiece
 from tokenizers.trainers import WordPieceTrainer
@@ -15,6 +15,7 @@ from ipdb import set_trace
 
 cat = None
 ent_ids = []
+non_alpha = re.compile('\w+')
 def load_cat(vocab_path, cdb_path ):
     #https://metamap.nlm.nih.gov/Docs/SemanticTypes_2018AB.txt
     # Sign or Symptom | T184
@@ -26,6 +27,7 @@ def load_cat(vocab_path, cdb_path ):
     # Disease or Syndrome | T047
     # Pathologic Function | T046
 
+    #misses pneumonia, hypotension
     vocab = Vocab()
     vocab.load_dict(vocab_path)
     print("Loaded Vocab")
@@ -41,18 +43,26 @@ def load_cat(vocab_path, cdb_path ):
     print("Loaded CAT")
 
 def annotate(txt):    
-    global ent_ids
-    entities = cat.get_entities(txt)    
-    new_text = txt[:]
-    for ent in entities:
-        span = ent["source_value"]
-        cui = "["+ent["cui"]+"]"
-        tui = "["+ent["tui"]+"]"
-        anno = f"{tui} {cui}"
-        ent_ids.append(tui)
-        ent_ids.append(cui)
-        new_text = new_text.replace(f" {span} ",f" {anno} " )
-    return new_text
+    global ent_ids    
+    #split notes into sentences and then stich them back together
+    notes = txt.split("[EON]")
+    new_notes = []
+    for note in notes:
+        new_text = note[:]
+        #medcat does not deal with punctuation well so I am removing all non alpha
+        # clean_note = " ".join(re.findall(non_alpha,note))
+        entities = cat.get_entities(note)    
+        for ent in entities:
+            span = ent["source_value"]
+            cui = "["+ent["cui"]+"]"
+            tui = "["+ent["tui"]+"]"
+            anno = f"{tui} {cui}"
+            ent_ids.append(tui)
+            ent_ids.append(cui)
+            new_text = new_text.replace(f" {span} ",f" {anno} " )
+        new_notes.append(new_text)
+    
+    return " [EON] ".join(new_notes)
 
 def train_tokenizer(docs, ent_ids_path, outpath):
     tokenizer = Tokenizer(WordPiece(unk_token="[UNK]"))

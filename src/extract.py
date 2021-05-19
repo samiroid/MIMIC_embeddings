@@ -58,7 +58,7 @@ def preprocess(txt):
     
     for k,v in replacements.items():
         txt_p = txt_p.replace(k,v)
-    
+    txt_p = " ".join(word_tokenize(txt_p))    
     return txt_p
 
 def read_ihm(path):
@@ -74,7 +74,7 @@ def read_pheno(path):
     return df
 
 def read_notes(path, patient_ids):
-    df_notes = pd.read_csv(path+"NOTEEVENTS.CSV.gz")
+    df_notes = pd.read_csv(path+"NOTEEVENTS.csv.gz")
     df_notes["SUBJECT_ID"] = pd.to_numeric(df_notes["SUBJECT_ID"])
     df_notes = df_notes.set_index("SUBJECT_ID")
     #filter notes by category
@@ -90,7 +90,7 @@ def read_notes(path, patient_ids):
     return df_notes
 
 def read_ALL_notes(path):
-    df_notes = pd.read_csv(path+"NOTEEVENTS.CSV.gz")
+    df_notes = pd.read_csv(path+"NOTEEVENTS.csv.gz")
     df_notes["SUBJECT_ID"] = pd.to_numeric(df_notes["SUBJECT_ID"])
     df_notes = df_notes.set_index("SUBJECT_ID")
     #filter notes by category
@@ -106,8 +106,8 @@ def read_ALL_notes(path):
     return df_notes
 
 def read_patients(mimic_path):
-    all_patients = pd.read_csv(mimic_path+"PATIENTS.CSV.gz")
-    all_admissions = pd.read_csv(mimic_path+"ADMISSIONS.CSV.gz")
+    all_patients = pd.read_csv(mimic_path+"PATIENTS.csv.gz")
+    all_admissions = pd.read_csv(mimic_path+"ADMISSIONS.csv.gz")
     all_admissions["SUBJECT_ID"] = pd.to_numeric(all_admissions["SUBJECT_ID"])
     all_patients["SUBJECT_ID"] = pd.to_numeric(all_patients["SUBJECT_ID"])
     all_patients = all_patients.set_index("SUBJECT_ID")

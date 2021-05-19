@@ -25,10 +25,9 @@ def cmdline_args():
                         help='path to a config file')        
     parser.add_argument('-checkpoint_path', type=str, help='path to save checkpoints')        
     parser.add_argument('-train_log_path', type=str, help='path save training log')        
-    parser.add_argument('-train', action="store_true",
-                         help='train model')      
-    parser.add_argument('-test', action="store_true",
-                         help='test model')      
+    parser.add_argument('-train', action="store_true", help='train model')      
+    parser.add_argument('-test', action="store_true", help='test model')      
+    parser.add_argument('-resume_checkpoint', action="store_true", help='resume checkpoint')      
     parser.add_argument('-device', type=str, default="auto", help='device')
     return parser.parse_args()	
 
@@ -69,9 +68,11 @@ def main():
         if args.checkpoint_path:
             print(f"checkpoint @ {args.checkpoint_path}")
             model = TransformerModel(vocab_size, conf=conf, device=device, 
-                                    checkpoint_path=args.checkpoint_path)
-            #load checkpoint
-            model.load_checkpoint()
+                                    checkpoint_path=args.checkpoint_path,
+                                    train_log_path=args.train_log_path)
+            if args.resume_checkpoint:
+                #load checkpoint
+                model.load_checkpoint()
         else:
             model = TransformerModel(vocab_size, conf=conf, device=device)            
         
