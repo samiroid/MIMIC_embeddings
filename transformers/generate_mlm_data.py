@@ -138,33 +138,6 @@ def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.15):
             print(f"skipped seq size {len(sent_accum)}")    
     return instances
 
-# def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len, max_preds=20, 
-#                     mask_prob=0.15, test_split=0.2, val_split=0.2, anno=True ):   
-    
-#     df = pd.read_csv(input_path, sep="\t")
-#     N = len(df)
-#     test_idx=math.ceil(N*test_split)
-#     val_idx=math.ceil(N*val_split)
-#     df_test = df.iloc[:test_idx]
-#     df_val = df.iloc[test_idx:(test_idx+val_idx)]
-#     df_train = df.iloc[(test_idx+val_idx):]
-#     if anno:
-#         train_docs = df_train["ANNO_TEXT"]
-#         test_docs = df_test["ANNO_TEXT"]
-#         val_docs = df_val["ANNO_TEXT"]
-#     else:
-#         train_docs = df_train["TEXT"]
-#         test_docs = df_test["TEXT"]
-#         val_docs = df_val["TEXT"]
-#     print("train: ", len(train_docs))
-#     print("test: ", len(test_docs))
-#     print("val: ", len(val_docs))
-    
-#     for data, sp in zip([train_docs, test_docs, val_docs], ["train","test","val"]):
-#         instances = get_mlm(data, tokenizah, max_seq_len, max_preds, mask_prob)
-#         df = pd.DataFrame(instances)
-#         df.to_csv(f"{output_path}{dataset}_{sp}.csv")
-
 def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len,   max_preds=20, mask_prob=0.15, anno=True ):       
     
     if anno:
@@ -180,11 +153,11 @@ def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len,   
     
     instances = get_mlm(train_docs, tokenizah, max_seq_len, max_preds, mask_prob)
     df = pd.DataFrame(instances)
-    df.to_csv(f"{output_path}/train_{dataset}.csv")
+    df.to_csv(f"{output_path}/train_{dataset}_{max_seq_len}.csv")
 
     instances = get_mlm(val_docs, tokenizah, max_seq_len, max_preds, mask_prob)
     df = pd.DataFrame(instances)
-    df.to_csv(f"{output_path}/val_{dataset}.csv")
+    df.to_csv(f"{output_path}/val_{dataset}_{max_seq_len}.csv")
 
     # for data, sp in zip([train_docs, val_docs], ["train", "val"]):
 def feats(row, max_seq_len, max_preds, tokenizah):
@@ -226,9 +199,9 @@ def feats(row, max_seq_len, max_preds, tokenizah):
 
 def vectorize(path, dataset, tokenizah, max_seq_len, max_preds):    
     splits = ["train","val"]
-    fpath = "{}{}_{}.csv"        
+    fpath = "{}{}_{}_{}.csv"        
     for sp in splits:
-        df = pd.read_csv(fpath.format(path, sp, dataset))
+        df = pd.read_csv(fpath.format(path, sp, dataset, max_seq_len))
         tokens = []
         labels = []
         attention_masks = []    
@@ -245,10 +218,10 @@ def vectorize(path, dataset, tokenizah, max_seq_len, max_preds):
         attention_masks = np.vstack(attention_masks)
         masked_indices = np.vstack(masked_indices)
         
-        np.save(f"{path}{dataset}_{sp}_tokens",tokens)
-        np.save(f"{path}{dataset}_{sp}_labels",labels)
-        np.save(f"{path}{dataset}_{sp}_mask",attention_masks)
-        np.save(f"{path}{dataset}_{sp}_x",masked_indices)
+        np.save(f"{path}{dataset}_{max_seq_len}_{sp}_tokens",tokens)
+        np.save(f"{path}{dataset}_{max_seq_len}_{sp}_labels",labels)
+        np.save(f"{path}{dataset}_{max_seq_len}_{sp}_mask",attention_masks)
+        np.save(f"{path}{dataset}_{max_seq_len}_{sp}_x",masked_indices)
     # set_trace()
 def train_tokenizer(docs, ent_ids_path, outpath):
     tokenizer = Tokenizer(WordPiece(unk_token="[UNK]"))
@@ -298,22 +271,22 @@ if __name__ == "__main__":
 
     if args.build_tokenizer:
         print("> training tokenizer")
-        df = pd.read_csv(f"{args.input}{args.dataset}.csv", sep="\t")
-        docs = list(df["TEXT"])
+        # df = pd.read_csv(f"{args.input}{args.dataset}.csv", sep="\t")
+        df_train = pd.read_csv(f"{args.input}/train_{args.dataset}.csv", sep="\t")
+        df_val = pd.read_csv(f"{args.input}/val_{args.dataset}.csv", sep="\t")
+        docs = list(df_train["TEXT"]) + list(df_val["TEXT"])
         if args.anno:
-            df_anno = pd.read_csv(f"{args.input}{args.dataset}_anno.csv", sep="\t")    
-            docs += list(df_anno["ANNO_TEXT"])
+            # df_anno = pd.read_csv(f"{args.input}{args.dataset}_anno.csv", sep="\t")    
+            df_train = pd.read_csv(f"{args.input}/train_{args.dataset}_anno.csv", sep="\t")
+            df_val = pd.read_csv(f"{args.input}/val_{args.dataset}.csv", sep="\t")
+            docs += list(df_train["ANNO_TEXT"]) + list(df_val["ANNO_TEXT"])
 
         tokenizah = train_tokenizer(docs, args.input+"/ent_ids.txt", args.output)
     
     if args.create_mlm:
         print("> create MLM data")        
         if not tokenizah:
-            tokenizah = Tokenizer.from_file(args.tok_path)
-        # if args.anno:
-        #     fpath = f"{args.input}{args.dataset}_anno.csv"
-        # else:
-        #     fpath = f"{args.input}{args.dataset}.csv"            
+            tokenizah = Tokenizer.from_file(args.tok_path)        
         create_mlm_data(args.input, args.output, args.dataset,tokenizah, max_seq_len=args.max_seq_len, max_preds=args.max_preds,anno=args.anno)
         
     if args.vectorize:
@@ -322,12 +295,3 @@ if __name__ == "__main__":
             tokenizah = Tokenizer.from_file(args.tok_path)
         vectorize(args.output, args.dataset, tokenizah, max_seq_len=args.max_seq_len, 
                     max_preds=args.max_preds)
-
-# notes_path = "/home/silvio/home/projects/MIMIC_embeddings/MIMIC_embeddings/DATA/input/mini_full_notes_ner.csv"    
-# features_path = "/home/silvio/home/projects/MIMIC_embeddings/MIMIC_embeddings/DATA/pretrain/"
-
-# tok_path = "/home/silvio/home/projects/MIMIC_embeddings/MIMIC_embeddings/DATA/input/tokenizer.json"
-# tokenizah = Tokenizer.from_file(tok_path)
-
-
-

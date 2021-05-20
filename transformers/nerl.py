@@ -5,7 +5,7 @@ from medcat.cat import CAT
 from medcat.utils.vocab import Vocab
 from medcat.cdb import CDB 
 import os
-import re
+
 from tokenizers import Tokenizer, decoders
 from tokenizers.models import WordPiece
 from tokenizers.trainers import WordPieceTrainer
@@ -15,7 +15,7 @@ from ipdb import set_trace
 
 cat = None
 ent_ids = []
-non_alpha = re.compile('\w+')
+
 def load_cat(vocab_path, cdb_path ):
     #https://metamap.nlm.nih.gov/Docs/SemanticTypes_2018AB.txt
     # Sign or Symptom | T184
