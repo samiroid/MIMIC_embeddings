@@ -22,9 +22,12 @@ def cmdline_args():
                         help='path to a trained tokenizer')        
     parser.add_argument('-load', type=str, help='path to trained model')        
     parser.add_argument('-conf_path', type=str, required=True, 
-                        help='path to a config file')        
-    parser.add_argument('-checkpoint_path', type=str, help='path to save checkpoints')        
-    parser.add_argument('-train_log_path', type=str, help='path save training log')        
+                        help='path to a config file')  
+    # parser.add_argument('-max_seq_len', type=int, required=True, help='max sequence length')  
+    parser.add_argument('-checkpoint_path', type=str, required=True, help='path to save checkpoints')        
+    parser.add_argument('-train_log_path', type=str, required=True, help='path save training log')        
+    parser.add_argument('-checkpoint_step', type=int, default=0, 
+                        help='number of steps between checkpoint saves')        
     parser.add_argument('-train', action="store_true", help='train model')      
     parser.add_argument('-test', action="store_true", help='test model')      
     parser.add_argument('-resume_checkpoint', action="store_true", help='resume checkpoint')      
@@ -57,25 +60,24 @@ def main():
         n_workers = conf["data_loader_workers"] if conf["data_loader_workers"] else 4
         bsize = conf["batch_size"]
         data_path = args.input + args.dataset
+        #TODO: shuffle the training data
         train_data = DataLoader(MLMDataset(data_path, "train"), batch_size=bsize,
-                                shuffle=True, num_workers=n_workers, pin_memory=pin_mem)    
+                                shuffle=False, num_workers=n_workers, pin_memory=pin_mem)    
         val_data = DataLoader(MLMDataset(data_path, "val"), shuffle=False,
                                         num_workers=n_workers)
         tokenizah = Tokenizer.from_file(args.tok_path)
         # the size of vocabulary
         vocab_size = len(tokenizah.get_vocab()) 
         print(f"vocab size: {vocab_size}")
-        if args.checkpoint_path:
-            print(f"checkpoint @ {args.checkpoint_path}")
-            model = TransformerModel(vocab_size, conf=conf, device=device, 
-                                    checkpoint_path=args.checkpoint_path,
-                                    train_log_path=args.train_log_path)
-            if args.resume_checkpoint:
-                #load checkpoint
-                model.load_checkpoint()
-        else:
-            model = TransformerModel(vocab_size, conf=conf, device=device)            
         
+        model = TransformerModel(vocab_size, conf=conf, device=device, 
+                                checkpoint_path=args.checkpoint_path,
+                                train_log_path=args.train_log_path,
+                                checkpoint_step=args.checkpoint_step)
+        if args.resume_checkpoint:
+            #load checkpoint
+            model.load_checkpoint()
+
         model = model.to(device)    
         # train model
         model.fit(train_data, val_data)    

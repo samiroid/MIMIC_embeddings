@@ -5,13 +5,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-import time
 import pprint
 import os
 from torch.utils.tensorboard import SummaryWriter
-import pytorch_warmup as warmup
 from tqdm import tqdm
 from warmup_scheduler import GradualWarmupScheduler 
+import collections
+import itertools
 
 def colstr(st, color, best=False):    
     if best:
@@ -21,9 +21,7 @@ def colstr(st, color, best=False):
     elif color == 'green':    
         cstring = "\033[32m" + st  + "\033[0m"
     else:
-        cstring = "\033[37m" + st  + "\033[0m"
-    
-        # cstring+=" **"
+        cstring = "\033[37m" + st  + "\033[0m"    
     return cstring   
 
 class MLMDataset(Dataset):  
@@ -85,7 +83,7 @@ class TransformerModel(nn.Module):
 }
 
     def __init__(self, vocab_size, conf=DEFAULT_CONF, device=None, 
-                checkpoint_path=None, train_log_path=None):
+                checkpoint_path=None, train_log_path=None, checkpoint_step=0):
         super(TransformerModel, self).__init__()        
         if device:
             self.device = device
@@ -93,7 +91,8 @@ class TransformerModel(nn.Module):
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #create logs and checkpoints directories
         self.checkpoint_path = checkpoint_path
-        if checkpoint_path: 
+        self.checkpoint_step = checkpoint_step
+        if self.checkpoint_step > 0:             
             print(f"saving checkpoints @ {self.checkpoint_path}")            
             dirname = os.path.dirname(checkpoint_path)
             if not os.path.exists(dirname):
@@ -114,6 +113,7 @@ class TransformerModel(nn.Module):
         print(f"> init transformer @ {self.device}")
         pprint.pprint(conf)                
         self.first_epoch = 1
+        self.last_batch_idx = -1
         self.conf = conf
         self.clipgrad_norm = conf["clipgrad_norm"] 
         self.vocab_size=vocab_size
@@ -127,9 +127,6 @@ class TransformerModel(nn.Module):
         self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
         self.decoder = nn.Linear(self.emb_size, self.vocab_size)
         self.criterion = nn.CrossEntropyLoss(ignore_index=0)
-
-        # self.optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)        
-
         #replicating optimizer from original BERT
         #https://github.com/google-research/bert/blob/master/optimization.py
         weight_decay_rate=0.01
@@ -139,21 +136,13 @@ class TransformerModel(nn.Module):
         self.optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, eps=epsilon,
                                             betas=(beta_1, beta_2),
                                             weight_decay=weight_decay_rate)
-
-        
-        
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, conf["step_size"], 
                                                         conf["decay_gamma"])
-
-         
-        self.scheduler_warmup = GradualWarmupScheduler(self.optimizer, total_epoch=2,               
+        self.scheduler_warmup = GradualWarmupScheduler(self.optimizer, 
+                                                        total_epoch=conf["warmup_steps"],               
                                                         multiplier=1,
                                                         after_scheduler=self.scheduler)
 
-
-        # self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, 
-        #                                                 np.arange(conf["epochs"]), 
-        #                                                 conf["decay_gamma"])
         self.init_weights()
 
     def init_weights(self, initrange = 0.1):        
@@ -176,8 +165,6 @@ class TransformerModel(nn.Module):
         output = self.transformer_encoder(src, src_key_padding_mask=src_key_pad_mask)
         return output
 
-    
-    
     def fit(self, train_dataloader, val_dataloader):
         self.train() # Turn on the train mode
         prev_train_loss = float("inf")
@@ -188,8 +175,21 @@ class TransformerModel(nn.Module):
         val_loss = 0.
         cur_loss = 0.
         val_loss_str = "0.00"
-        best_model = None                
+        best_model = None            
         
+        #if a checkpoint has been loaded fastforward dataloader to last batch
+        try:
+            if self.last_batch_idx:                
+                print(f"fast forward to batch: {self.last_batch_idx}")
+                # set_trace()                
+                # for i, _ in enumerate(train_dataloader):
+                #     if i >= self.last_batch_idx:
+                #         break
+                    # print(len(z))
+        except AttributeError:
+            pass
+            
+        print("buga")
         #number of total batches seen by the model
         global_step = 0                
         #self.first_epoch has the epoch we start from (in case a checkpoint was loaded)        
@@ -202,23 +202,39 @@ class TransformerModel(nn.Module):
                 curr_lr = self.optimizer.param_groups[0]['lr']
                 if curr_lr < 0.1:
                     curr_lr = "{:.2E}".format(self.scheduler.get_last_lr()[0])
-                
-                train_loss = 0.
                 for i, batch in enumerate(tepoch):
+                    if i <= self.last_batch_idx and self.last_batch_idx > -1:
+                        # print(f"skip {i}")
+                        tepoch.set_description(f"fast forward {i}")
+                        continue
+                    #load batch and send to device
                     seq, X, Y, src_mask = batch            
                     seq = seq.to(self.device)
                     Y = Y.to(self.device)
                     src_mask = src_mask.to(self.device)                    
+                    X = X.to(self.device)
                     self.optimizer.zero_grad()            
                     output = self.forward(seq)            
                     #0,1,2,...,bsize
-                    batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
+                    batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1).to(self.device)                    
                     #select only the indices corresponding to the MLM predictions
-                    preds = output[batch_idx,X,:].view(-1, self.vocab_size)      
+                    try:
+                        preds = output[batch_idx,X,:].view(-1, self.vocab_size)      
+                    except IndexError as e:
+                        print(e)
+                        set_trace()
                     loss = self.criterion(preds, Y.view(-1))
-                    loss.backward()
+                    try:
+                        loss.backward()
+                    except RuntimeError:
+                        set_trace()
+
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.clipgrad_norm)
-                    self.optimizer.step()               
+                    try:
+                        self.optimizer.step()               
+                    except RuntimeError as e:
+                        print(e)
+                        set_trace()
                     train_loss += loss.item()                
                     
                     global_step+=1
@@ -235,9 +251,13 @@ class TransformerModel(nn.Module):
                         train_loss_str = colstr(str(cur_loss),"")
                     tepoch.set_postfix(tr_loss=train_loss_str, 
                                         val_loss=val_loss_str,
-                                        lr=curr_lr)
-                
+                                        lr=curr_lr)               
+                    if i > 0 and self.checkpoint_step > 0 and i % self.checkpoint_step == 0 :
+                        params = best_model if best_model else self.state_dict()
+                        self.save_checkpoint(epoch, best_val_loss, params, i)                        
+
                 prev_train_loss = cur_loss
+                train_loss = 0.
                 val_loss = self.evaluate(val_dataloader)                  
                 val_loss = round(val_loss,3)
 
@@ -252,18 +272,17 @@ class TransformerModel(nn.Module):
                     val_loss_str = colstr(str(val_loss),"green",best)
                 else:
                     val_loss_str = str(val_loss)   
-                prev_val_loss = val_loss
+                prev_val_loss = val_loss                
                 
                 tepoch.set_postfix(tr_loss=train_loss_str, val_loss=val_loss_str, lr=curr_lr)
-                if self.tensorboard:
-                    # train_loss = round(cur_loss/N,3)
+                if self.tensorboard:                    
                     self.tensorboard.add_scalar("train/loss", cur_loss, epoch)
                     self.tensorboard.add_scalar("val/loss", val_loss, epoch)
                     for name, weight in self.named_parameters():
                         self.tensorboard.add_histogram("weights/"+name,weight, epoch)
                         self.tensorboard.add_histogram("grads/"f'{name}.grad',weight.grad, epoch)
                 #save a checkpoint
-                self.save_checkpoint(epoch, best_val_loss, best_model)
+                self.save_checkpoint(epoch, best_val_loss, best_model, 0)
         #load best parameters
         self.load_state_dict(best_model)
 
@@ -285,7 +304,7 @@ class TransformerModel(nn.Module):
                 total_loss += len(data) * self.criterion(preds, Y.view(-1)).item()
         return total_loss / (len(dataloader.dataset) - 1)
 
-    def save_checkpoint(self, epoch, loss, best_model):
+    def save_checkpoint(self, epoch, loss, best_model,last_batch_idx):
         if self.checkpoint_path:            
             chkpt = {
                 'epoch': epoch,
@@ -293,16 +312,18 @@ class TransformerModel(nn.Module):
                 'model_state_dict': best_model,
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 'scheduler_state_dict': self.scheduler.state_dict(),
+                'last_batch_idx':last_batch_idx
             }
             torch.save(chkpt, self.checkpoint_path)      
         else:
             print("=> could not save checkpoint '{}'".format(self.checkpoint_path))
 
     def load_checkpoint(self):          
-        if self.checkpoint_path and os.path.isfile(self.checkpoint_path):
-            print("=> loading checkpoint '{}'".format(self.checkpoint_path))
-            checkpoint = torch.load(self.checkpoint_path)            
+        if self.checkpoint_path and os.path.isfile(self.checkpoint_path):            
+            checkpoint = torch.load(self.checkpoint_path)    
+            self.to(self.device)        
             self.first_epoch = checkpoint['epoch']
+            self.last_batch_idx = checkpoint["last_batch_idx"]
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             self.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
