@@ -114,6 +114,7 @@ class TransformerModel(nn.Module):
         pprint.pprint(conf)                
         self.first_epoch = 1
         self.last_batch_idx = -1
+        self.last_loss = 0.
         self.conf = conf
         self.clipgrad_norm = conf["clipgrad_norm"] 
         self.vocab_size=vocab_size
@@ -126,7 +127,7 @@ class TransformerModel(nn.Module):
         self.transformer_encoder = TransformerEncoder(encoder_layers, conf["nlayers"])
         self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
         self.decoder = nn.Linear(self.emb_size, self.vocab_size)
-        self.criterion = nn.CrossEntropyLoss(ignore_index=0)
+        self.criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="mean")
         #replicating optimizer from original BERT
         #https://github.com/google-research/bert/blob/master/optimization.py
         weight_decay_rate=0.01
@@ -169,26 +170,15 @@ class TransformerModel(nn.Module):
         self.train() # Turn on the train mode
         prev_train_loss = float("inf")
         prev_val_loss = float("inf")        
-        best_val_loss = float("inf")        
-        best_train_loss = float("inf")        
-        train_loss = 0.
+        best_val_loss = float("inf")                
+        train_loss = self.last_loss
         val_loss = 0.
         cur_loss = 0.
-        val_loss_str = "0.00"
+        val_loss_str = colstr("0.00","red")        
         best_model = None            
         
-        #if a checkpoint has been loaded fastforward dataloader to last batch
-        try:
-            if self.last_batch_idx:                
-                print(f"fast forward to batch: {self.last_batch_idx}")
-                # set_trace()                
-                # for i, _ in enumerate(train_dataloader):
-                #     if i >= self.last_batch_idx:
-                #         break
-                    # print(len(z))
-        except AttributeError:
-            pass
-            
+        skips_counter = 0
+        
         print("buga")
         #number of total batches seen by the model
         global_step = 0                
@@ -197,18 +187,20 @@ class TransformerModel(nn.Module):
             #warmup scheduler needs to take step before optimizer
             #this will raise a UserWarning
             self.scheduler_warmup.step()
-            with tqdm(train_dataloader, unit="bt") as tepoch:
-                tepoch.set_description(f"Epoch: {epoch}")                
+            with tqdm(train_dataloader, unit="bt") as pbar:
+                pbar.set_description(f"Epoch: {epoch}")                
                 curr_lr = self.optimizer.param_groups[0]['lr']
                 if curr_lr < 0.1:
                     curr_lr = "{:.2E}".format(self.scheduler.get_last_lr()[0])
-                for i, batch in enumerate(tepoch):
-                    if i <= self.last_batch_idx and self.last_batch_idx > -1:
-                        # print(f"skip {i}")
-                        tepoch.set_description(f"fast forward {i}")
+                for i, batch in enumerate(pbar):
+                    global_step+=1
+                    #fastforward batches that were already processed (after checkpoint loading)
+                    if i <= self.last_batch_idx \
+                    and self.last_batch_idx > -1:                        
+                        pbar.set_description(f"fast fwd {i}")
                         continue
                     #load batch and send to device
-                    seq, X, Y, src_mask = batch            
+                    seq, X, Y, src_mask = batch      
                     seq = seq.to(self.device)
                     Y = Y.to(self.device)
                     src_mask = src_mask.to(self.device)                    
@@ -218,44 +210,30 @@ class TransformerModel(nn.Module):
                     #0,1,2,...,bsize
                     batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1).to(self.device)                    
                     #select only the indices corresponding to the MLM predictions
-                    try:
-                        preds = output[batch_idx,X,:].view(-1, self.vocab_size)      
-                    except IndexError as e:
-                        print(e)
-                        set_trace()
-                    loss = self.criterion(preds, Y.view(-1))
-                    try:
-                        loss.backward()
-                    except RuntimeError:
-                        set_trace()
-
+                    preds = output[batch_idx,X,:].view(-1, self.vocab_size)      
+                    loss = self.criterion(preds, Y.view(-1))                    
+                    loss.backward()
                     torch.nn.utils.clip_grad_norm_(self.parameters(), self.clipgrad_norm)
-                    try:
-                        self.optimizer.step()               
-                    except RuntimeError as e:
-                        print(e)
-                        set_trace()
-                    train_loss += loss.item()                
-                    
-                    global_step+=1
-                    cur_loss = train_loss / ((i+1)*train_dataloader.batch_size)
+                    self.optimizer.step()                                   
+                    train_loss += loss.item()           
+                    cur_loss = train_loss / (i+1)
                     cur_loss = round(cur_loss, 3)
                     if self.tensorboard:
-                        self.tensorboard.add_scalar("batch/loss", cur_loss, global_step)                        
-                    
+                        self.tensorboard.add_scalar("batch/loss", cur_loss, global_step)                                            
                     if cur_loss > prev_train_loss:
                         train_loss_str = colstr(str(cur_loss),"red")
                     elif cur_loss < prev_train_loss:                        
                         train_loss_str = colstr(str(cur_loss),"green")
                     else:
                         train_loss_str = colstr(str(cur_loss),"")
-                    tepoch.set_postfix(tr_loss=train_loss_str, 
+                    pbar.set_postfix(tr_loss=train_loss_str, 
                                         val_loss=val_loss_str,
                                         lr=curr_lr)               
                     if i > 0 and self.checkpoint_step > 0 and i % self.checkpoint_step == 0 :
                         params = best_model if best_model else self.state_dict()
-                        self.save_checkpoint(epoch, best_val_loss, params, i)                        
-
+                        self.save_checkpoint(epoch, train_loss, params, i)                        
+                #on the next epoch do not skip batches
+                self.last_batch_idx = -1
                 prev_train_loss = cur_loss
                 train_loss = 0.
                 val_loss = self.evaluate(val_dataloader)                  
@@ -274,7 +252,6 @@ class TransformerModel(nn.Module):
                     val_loss_str = str(val_loss)   
                 prev_val_loss = val_loss                
                 
-                tepoch.set_postfix(tr_loss=train_loss_str, val_loss=val_loss_str, lr=curr_lr)
                 if self.tensorboard:                    
                     self.tensorboard.add_scalar("train/loss", cur_loss, epoch)
                     self.tensorboard.add_scalar("val/loss", val_loss, epoch)
@@ -282,29 +259,48 @@ class TransformerModel(nn.Module):
                         self.tensorboard.add_histogram("weights/"+name,weight, epoch)
                         self.tensorboard.add_histogram("grads/"f'{name}.grad',weight.grad, epoch)
                 #save a checkpoint
-                self.save_checkpoint(epoch, best_val_loss, best_model, 0)
+                self.save_checkpoint(epoch, train_loss, best_model, 0)
         #load best parameters
         self.load_state_dict(best_model)
-
 
     def evaluate(self, dataloader):
         self.eval() # Turn on the evaluation mode
         total_loss = 0.        
         with torch.no_grad():
-            for batch in dataloader:
-                data, X, Y, src_mask = batch                
-                data = data.to(self.device)
-                Y = Y.to(self.device)
-                src_mask = src_mask.to(self.device)
-                output = self.forward(data)
-                #0,1,2,...,bsize
-                batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
-                #select only the indices corresponding to the MLM predictions
-                preds = output[batch_idx,X,:].view(-1, self.vocab_size)                
-                total_loss += len(data) * self.criterion(preds, Y.view(-1)).item()
-        return total_loss / (len(dataloader.dataset) - 1)
+            with tqdm(dataloader, unit="bt") as pbar:
+                pbar.set_description("Validation")    
+                for batch in pbar:
+                    seq, X, Y, src_mask = batch                              
+                    seq = seq.to(self.device)
+                    Y = Y.to(self.device)
+                    src_mask = src_mask.to(self.device)                    
+                    X = X.to(self.device)                    
+                    output = self.forward(seq)
+                    #0,1,2,...,bsize
+                    batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1).to(self.device)
+                    #select only the indices corresponding to the MLM predictions
+                    preds = output[batch_idx,X,:].view(-1, self.vocab_size)                
+                    total_loss += self.criterion(preds, Y.view(-1)).item()
+        return total_loss / len(dataloader)
 
-    def save_checkpoint(self, epoch, loss, best_model,last_batch_idx):
+    # def evaluate(self, dataloader):
+    #     self.eval() # Turn on the evaluation mode
+    #     total_loss = 0.        
+    #     with torch.no_grad():
+    #         for batch in dataloader:
+    #             data, X, Y, src_mask = batch                
+    #             data = data.to(self.device)
+    #             Y = Y.to(self.device)
+    #             src_mask = src_mask.to(self.device)
+    #             output = self.forward(data)
+    #             #0,1,2,...,bsize
+    #             batch_idx = torch.arange(output.shape[0]).long().unsqueeze(1)
+    #             #select only the indices corresponding to the MLM predictions
+    #             preds = output[batch_idx,X,:].view(-1, self.vocab_size)                
+    #             total_loss += len(data) * self.criterion(preds, Y.view(-1)).item()
+    #     return total_loss / (len(dataloader.dataset) - 1)
+
+    def save_checkpoint(self, epoch, loss, best_model, batch_idx):
         if self.checkpoint_path:            
             chkpt = {
                 'epoch': epoch,
@@ -312,7 +308,7 @@ class TransformerModel(nn.Module):
                 'model_state_dict': best_model,
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 'scheduler_state_dict': self.scheduler.state_dict(),
-                'last_batch_idx':last_batch_idx
+                'batch_idx':batch_idx
             }
             torch.save(chkpt, self.checkpoint_path)      
         else:
@@ -323,7 +319,8 @@ class TransformerModel(nn.Module):
             checkpoint = torch.load(self.checkpoint_path)    
             self.to(self.device)        
             self.first_epoch = checkpoint['epoch']
-            self.last_batch_idx = checkpoint["last_batch_idx"]
+            self.last_batch_idx = checkpoint["batch_idx"]
+            self.last_loss = checkpoint["loss"]
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             self.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

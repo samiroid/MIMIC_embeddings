@@ -64,7 +64,7 @@ def main():
         train_data = DataLoader(MLMDataset(data_path, "train"), batch_size=bsize,
                                 shuffle=False, num_workers=n_workers, pin_memory=pin_mem)    
         val_data = DataLoader(MLMDataset(data_path, "val"), shuffle=False,
-                                        num_workers=n_workers)
+                                        num_workers=n_workers, batch_size=bsize)
         tokenizah = Tokenizer.from_file(args.tok_path)
         # the size of vocabulary
         vocab_size = len(tokenizah.get_vocab()) 
