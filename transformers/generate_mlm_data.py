@@ -90,7 +90,7 @@ def create_masked_lm_predictions(tokens, masked_lm_prob, max_predictions_per_seq
 
     return tokens, mask_indices, masked_token_labels
 
-def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.15):
+def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.2):
     #unpack list of keys from vocabulary (dict)
     vocab = [*tokenizah.get_vocab()]
     instances = []
@@ -110,7 +110,7 @@ def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.15):
                 sent_accum += last_sent
                 if len(sent_accum) >= max_seq_len:
                     #truncate
-                    sent_accum = sent_accum[:max_seq_len-1] + ["[SEP]"]
+                    sent_accum = sent_accum[:max_seq_len-2] + ["[SEP]"]
                     # set_trace()
                     z = create_masked_lm_predictions(sent_accum, mask_prob, max_preds, vocab)                
                     masked_tokens, masked_indices, masked_token_labels = z
@@ -138,7 +138,8 @@ def get_mlm(dataset, tokenizah, max_seq_len, max_preds=20, mask_prob=0.15):
             print(f"skipped seq size {len(sent_accum)}")    
     return instances
 
-def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len,   max_preds=20, mask_prob=0.15, anno=True ):       
+def create_mlm_data(input_path, output_path, dataset, tokenizah, max_seq_len, 
+                    max_preds=20, mask_prob=0.2, anno=True ):       
     
     if anno:
         df_train = pd.read_csv(f"{input_path}/train_{dataset}_anno.csv", sep="\t")
@@ -167,7 +168,7 @@ def feats(row, max_seq_len, max_preds, tokenizah):
     #truncate sequences longer than max_seq_len
     tokens = tokens[:max_seq_len]
     #remove masked indices that may have been truncated
-    masked_indices = [mi for mi in masked_indices if mi <= max_seq_len]
+    masked_indices = [mi for mi in masked_indices if mi < max_seq_len]
     #remove the corresponding labels
     token_label = token_label[:len(masked_indices)]        
     #convert tokens to ids
