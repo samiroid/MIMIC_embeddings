@@ -177,9 +177,6 @@ class TransformerModel(nn.Module):
         val_loss_str = colstr("0.00","red")        
         best_model = None            
         
-        skips_counter = 0
-        
-        print("buga")
         #number of total batches seen by the model
         global_step = 0                
         #self.first_epoch has the epoch we start from (in case a checkpoint was loaded)        
@@ -188,10 +185,7 @@ class TransformerModel(nn.Module):
             #this will raise a UserWarning
             self.scheduler_warmup.step()
             with tqdm(train_dataloader, unit="bt") as pbar:
-                pbar.set_description(f"Epoch: {epoch}")                
-                curr_lr = self.optimizer.param_groups[0]['lr']
-                if curr_lr < 0.1:
-                    curr_lr = "{:.2E}".format(self.scheduler.get_last_lr()[0])
+                pbar.set_description(f"Epoch: {epoch}")   
                 for i, batch in enumerate(pbar):
                     global_step+=1
                     #fastforward batches that were already processed (after checkpoint loading)
@@ -213,7 +207,7 @@ class TransformerModel(nn.Module):
                     preds = output[batch_idx,X,:].view(-1, self.vocab_size)      
                     loss = self.criterion(preds, Y.view(-1))                    
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.parameters(), self.clipgrad_norm)
+                    # torch.nn.utils.clip_grad_norm_(self.parameters(), self.clipgrad_norm)
                     self.optimizer.step()                                   
                     train_loss += loss.item()           
                     cur_loss = train_loss / (i+1)
@@ -226,9 +220,15 @@ class TransformerModel(nn.Module):
                         train_loss_str = colstr(str(cur_loss),"green")
                     else:
                         train_loss_str = colstr(str(cur_loss),"")
+                    
+                    curr_lr = self.optimizer.param_groups[0]['lr']
+                    # curr_lr_str = curr_lr
+                    # if curr_lr < 0.1:
+                    #     curr_lr_str = "{:.3E}".format()
+                    
                     pbar.set_postfix(tr_loss=train_loss_str, 
-                                        val_loss=val_loss_str,
-                                        lr=curr_lr)               
+                                     val_loss=val_loss_str,
+                                     lr=curr_lr)               
                     if i > 0 and self.checkpoint_step > 0 and i % self.checkpoint_step == 0 :
                         params = best_model if best_model else self.state_dict()
                         self.save_checkpoint(epoch, train_loss, params, i)                        
@@ -251,10 +251,11 @@ class TransformerModel(nn.Module):
                 else:
                     val_loss_str = str(val_loss)   
                 prev_val_loss = val_loss                
-                
+                # set_trace()
                 if self.tensorboard:                    
-                    self.tensorboard.add_scalar("train/loss", cur_loss, epoch)
-                    self.tensorboard.add_scalar("val/loss", val_loss, epoch)
+                    self.tensorboard.add_scalar("loss/train", cur_loss, epoch)
+                    self.tensorboard.add_scalar("loss/val", val_loss, epoch)
+                    self.tensorboard.add_scalar("lrate/lrate", curr_lr, epoch)
                     for name, weight in self.named_parameters():
                         self.tensorboard.add_histogram("weights/"+name,weight, epoch)
                         self.tensorboard.add_histogram("grads/"f'{name}.grad',weight.grad, epoch)
