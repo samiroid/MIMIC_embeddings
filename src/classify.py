@@ -4,13 +4,14 @@ import os
 from sklearn.linear_model import SGDClassifier 
 from sklearn.metrics import f1_score, confusion_matrix, roc_auc_score, auc, precision_recall_curve
 from sklearn.metrics import precision_recall_fscore_support as score
-from tadat import core
-from .vectorize import extract_features
+from tadat.core import vectorizer, helpers
+from encode import read_cache
 
 
 GROUPS = { "GENDER": ["M","F"],   
          "ETHNICITY": ["WHITE","BLACK","ASIAN","HISPANIC"]
 }
+
 
 def train_classifier(X_train, Y_train, X_val, Y_val, 
                      init_seed, shuffle_seed=None, input_dimension=None):    
@@ -80,33 +81,50 @@ def evaluate_classifier(model, X_test, Y_test,
             }
 
     if res_path is not None:    
-        core.helpers.save_results(res, res_path, sep="\t")
+        helpers.save_results(res, res_path, sep="\t")
     return res
 
-def vectorize(df_train, df_val, df_test, subject_ids):
+def vectorize(df_train2, df_val2, df_test2, subject_ids):
     """ vectorize the instances and stratify them by demographic subgroup
         df_train: training data as a DataFrame
         df_test: test data as a DataFrame
         df_val: validation data as a DataFrame
         subject_ids: list of subject ids (the order corresponds to order of the features that were extracted)
         
-        returns: vectorized train, validation and test datasets, stratified by demographic subgroup
-                 label vocabulary                 
+        returns: vectorized train, validation and test datasets, stratified by demographic subgroup and label vocabulary                 
     """
 
+    #TODO: see why some features are missing
+    df_train = df_train2[df_train2["SUBJECT_ID"].isin(subject_ids)]
+    print(f"{len(df_train)}/{len(df_train2)}")
+    
+    df_val = df_val2[df_val2["SUBJECT_ID"].isin(subject_ids)]
+    print(f"{len(df_val)}/{len(df_val2)}")
+    
+    df_test = df_test2[df_test2["SUBJECT_ID"].isin(subject_ids)]
+    print(f"{len(df_test)}/{len(df_test2)}")
+    
     #vectorize labels
     train_Y = df_train["Y"].tolist()
     val_Y = df_val["Y"].tolist()           
     test_Y = df_test["Y"].tolist()               
-    label_vocab = core.vectorizer.get_labels_vocab(train_Y+val_Y)    
-    train_Y,_ = core.vectorizer.label2idx(train_Y, label_vocab)
-    val_Y,_ = core.vectorizer.label2idx(val_Y, label_vocab)
-    test_Y,_ = core.vectorizer.label2idx(test_Y, label_vocab)      
-    
+    label_vocab = vectorizer.get_labels_vocab(train_Y+val_Y)    
+    train_Y,_ = vectorizer.label2idx(train_Y, label_vocab)
+    val_Y,_ = vectorizer.label2idx(val_Y, label_vocab)
+    test_Y,_ = vectorizer.label2idx(test_Y, label_vocab)      
+    # from pdb import set_trace; set_trace()    
     #get indices into the feature matrix
-    train_idxs = [subject_ids.index(i) for i in list(df_train["SUBJECT_ID"])] 
-    val_idxs = [subject_ids.index(i) for i in list(df_val["SUBJECT_ID"])] 
-    test_idxs = [subject_ids.index(i) for i in list(df_test["SUBJECT_ID"])] 
+    # train_idxs = [] 
+    # for i in df_train["SUBJECT_ID"].tolist():
+    #     try:
+    #         train_idxs.append(subject_ids.index(i))
+    #     except ValueError:
+    #         print(f"{i} not found")
+    # from pdb import set_trace; set_trace()    
+
+    train_idxs = [subject_ids.index(i) for i in df_train["SUBJECT_ID"].tolist()] 
+    val_idxs = [subject_ids.index(i) for i in df_val["SUBJECT_ID"].tolist()] 
+    test_idxs = [subject_ids.index(i) for i in df_test["SUBJECT_ID"].tolist()] 
     #construct datasets
     train = {}
     test = {}
@@ -123,9 +141,9 @@ def vectorize(df_train, df_val, df_test, subject_ids):
             df_test_sub = df_test[df_test[group] == subgroup]
             df_val_sub = df_val[df_val[group] == subgroup]
             #vectorize labels               
-            train_Y_sub,_ = core.vectorizer.label2idx(df_train_sub["Y"], label_vocab)            
-            test_Y_sub,_ = core.vectorizer.label2idx(df_test_sub["Y"], label_vocab)            
-            val_Y_sub,_ = core.vectorizer.label2idx(df_val_sub["Y"], label_vocab)      
+            train_Y_sub,_ = vectorizer.label2idx(df_train_sub["Y"], label_vocab)            
+            test_Y_sub,_ = vectorizer.label2idx(df_test_sub["Y"], label_vocab)            
+            val_Y_sub,_ = vectorizer.label2idx(df_val_sub["Y"], label_vocab)      
             #get indices into the feature matrix
             train_idxs_sub = [subject_ids.index(i) for i in list(df_train_sub["SUBJECT_ID"])] 
             test_idxs_sub = [subject_ids.index(i) for i in list(df_test_sub["SUBJECT_ID"])] 
@@ -140,7 +158,7 @@ def vectorize(df_train, df_val, df_test, subject_ids):
 
     return train, val, test, label_vocab
 
-def read_dataset(path, dataset_name, df_demographics):    
+def read_dataset(path, dataset_name):    
     
     """ read dataset        
         path: path to the dataset
@@ -149,6 +167,10 @@ def read_dataset(path, dataset_name, df_demographics):
                 
         returns: train, test and validation sets as DataFrames
     """
+    
+    #read patients data       
+    df_demographics = pd.read_csv("{}/demographics.csv".format(path, dataset_name), 
+                           sep="\t", header=0)
     df_train = pd.read_csv("{}/{}_train.csv".format(path, dataset_name), 
                            sep="\t", header=0)
     df_test  = pd.read_csv("{}/{}_test.csv".format(path, dataset_name),
@@ -179,21 +201,22 @@ def read_tasks(tasks_fname, mini=False):
             datasets.append(dataset)
     return datasets
 
-def run(data_path, dataset, feature_type, metric, pos_label=1):    
+def run(data_path, dataset, output_path, features, metric, pos_label=1):    
     #read patients data
-    df_demographics = pd.read_csv(data_path+"/input/demographics.csv", 
-                              sep="\t", header=0)
+    # df_demographics = pd.read_csv(data_path+"/input/demographics.csv", 
+    #                           sep="\t", header=0)
     
     #read dataset
-    df_train, df_test, df_val = read_dataset(data_path+"/input/tasks/", dataset, df_demographics)
-    
+    # df_train, df_test, df_val = read_dataset(data_path+"/input/tasks/", dataset, df_demographics)
+    df_train, df_test, df_val = read_dataset(f"{data_path}/tasks/", dataset)    
     print("[{} > train/test set size: {}/{}]".format(dataset, len(df_train), len(df_test)))
     
     #extract features
-    subject_ids, feature_matrix = extract_features(data_path+"/input/full_notes.csv", 
-                                                    feature_type, data_path+"/features/")      
+    # subject_ids, feature_matrix =  extract_features(data_path+"/input/full_notes.csv", 
+    #                                                 feature_type, data_path+"/features/")      
+    subject_ids, feature_matrix = read_cache(f"{data_path}/pkl/{features}")
     train, val, test, label_vocab = vectorize(df_train, df_val, df_test, subject_ids)
-    inv_label_vocab = core.vectorizer.invert_idx(label_vocab)
+    # inv_label_vocab = vectorizer.invert_idx(label_vocab)
     train_idx, train_Y = train["all"]
     val_idx, val_Y = val["all"]
     #slice the feature matrix to get the corresponding instances
@@ -209,61 +232,60 @@ def run(data_path, dataset, feature_type, metric, pos_label=1):
                                 init_seed=init_seed, 
                                 shuffle_seed=shuffle_seed)                                                                                
     #test each subgroup (note thtat *all* is also a subgroup)
-    results = {"model":feature_type, "task":dataset, "metric":metric}
+    results = {"model":features, "task":dataset, "metric":metric}
     for subgroup in groups:                                
         test_idx_sub, test_Y_sub = test[subgroup]                 
         test_X_sub = feature_matrix[test_idx_sub, :]                
         res_sub = evaluate_classifier(model, test_X_sub, test_Y_sub, 
-                                    label_vocab, pos_label, feature_type, seed, subgroup)                
+                                    label_vocab, pos_label, features, seed, subgroup)                
         results[subgroup]= res_sub[metric]     
-    #save results
-    dirname = os.path.dirname(data_path+"/out/")
+    #save results    
+    dirname = os.path.dirname(output_path)
     if not os.path.exists(dirname):
         os.makedirs(dirname)
     
     df_results = pd.DataFrame.from_records([results]) 
-    if not os.path.exists(data_path+"/out/"+dataset):
-        df_results.to_csv(data_path+"/out/"+dataset, index=False, header=True)
+    if not os.path.exists(f"{output_path}/{dataset}"):
+        df_results.to_csv(f"{output_path}/{dataset}", index=False, header=True)
     else:
-        df_results.to_csv(data_path+"/out/"+dataset, index=False, mode="a", header=False)
+        df_results.to_csv(f"{output_path}/{dataset}", index=False, mode="a", header=False)
     
-    if not os.path.exists(data_path+"/out/"+feature_type.lower()):
-        df_results.to_csv(data_path+"/out/"+feature_type.lower(), index=False, header=True)
+    if not os.path.exists(f"{output_path}/{features.lower()}"):
+        df_results.to_csv(f"{output_path}/{features.lower()}", index=False, header=True)
     else:
-        df_results.to_csv(data_path+"/out/"+feature_type.lower(), index=False, mode="a", header=False)
+        df_results.to_csv(f"{output_path}/{features.lower()}", index=False, mode="a", header=False)
 
     return df_results
 
+def clinical_probe(data_path, output_path, feature_type, metric):
+    
+    tasks  = read_tasks(data_path+"/tasks/tasks.txt", True)
+    for dataset in tasks:
+        run(data_path, dataset, output_path, feature_type, metric)
+
+def demographics_probe(data_path, output_path, feature_type, metric):
+    tasks  = read_tasks(data_path+"/tasks/demo_tasks.txt", mini=False)
+    metric = "macroF1"
+    for dataset, pos_label in zip(tasks, ["M","WHITE","WHITE"]):
+        run(data_path, dataset, output_path, feature_type, metric, pos_label=pos_label)
+    
 def cmdline_args():
-    parser = argparse.ArgumentParser(description="Extract MIMIC data ")
-    parser.add_argument('-tasks', type=str, required=True, help='path to tasks data')    
-    parser.add_argument('-data', type=str, required=True, help='path to data')       
-    parser.add_argument('-metric', type=str, required=True, help='metric')    
-    parser.add_argument('-feature', type=str, required=True, help='feature type')    
+    parser = argparse.ArgumentParser(description="Probing Representations ")
+    parser.add_argument('-data', type=str, required=True, help='path to data')           
+    parser.add_argument('-output', type=str, required=True, help='output path')    
+    parser.add_argument('-metric', type=str, default="auroc", help='metric')    
+    parser.add_argument('-features', type=str, required=True, help='features path')    
     parser.add_argument('-probe', choices=["clinical", "demographics"], default="clinical", 
                         help='feature type')    
         
     return parser.parse_args()	
 
-def clinical_probe(data_path, tasks_path, feature_type, metric):
-    
-    tasks  = read_tasks(tasks_path, True)
-    for dataset in tasks:
-        run(data_path, dataset, feature_type, metric)
-
-def demographics_probe(data_path, tasks_path, feature_type, metric):
-    tasks  = read_tasks(tasks_path, True)
-    metric = "macroF1"
-    for dataset, pos_label in zip(tasks, ["M","WHITE","WHITE"]):
-        run(data_path, dataset, feature_type, metric, pos_label=pos_label)
-    
-
 if __name__ == "__main__":
     args = cmdline_args()
     if args.probe == "clinical":
-        clinical_probe(args.data, args.tasks, args.feature, args.metric)
+        clinical_probe(args.data, args.output, args.features, args.metric)
     elif args.probe == "demographics":
-        demographics_probe(args.data, args.tasks, args.feature, args.metric)
+        demographics_probe(args.data, args.output, args.features, args.metric)
     else:
         NotImplementedError
 

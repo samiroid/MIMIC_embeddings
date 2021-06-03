@@ -17,7 +17,7 @@ def convert_u2v(pathin, pathout):
     print("converting to U2V")
     for i in trange(len(df)): 
         row = df.iloc[i]
-        notes = row["TEXT"].split("[EON]")
+        notes = row["TEXT"].split("[EOD]")
         uid = row["SUBJECT_ID"]        
         for note in notes:                        
             sentences = note.split("[EOS]")            
@@ -33,16 +33,16 @@ def split(pathin, pathout, split):
     df_val = pd.DataFrame(columns=df.columns.tolist())    
     for i in trange(len(df)): 
         row = df.iloc[i]
-        notes = row["TEXT"].split(" [EON] ")
+        notes = row["TEXT"].split(" [EOD] ")
         N = len(notes)
         n = math.floor(N*args.split)        
         idxs = rng.permutation(N)
         notes = np.array(notes)
         val_notes = notes[idxs[:n]].tolist()
         train_notes = notes[idxs[n:]].tolist()
-        df_train.loc[i] = [row["SUBJECT_ID"], " [EON] ".join(train_notes)]   
+        df_train.loc[i] = [row["SUBJECT_ID"], " [EOD] ".join(train_notes)]   
         if len(val_notes) > 0:     
-            df_val.loc[i] = [row["SUBJECT_ID"], " [EON] ".join(val_notes)]
+            df_val.loc[i] = [row["SUBJECT_ID"], " [EOD] ".join(val_notes)]
     df_train.to_csv(f"{args.output}train_{fname}", index=False, header=True, sep="\t")
     df_val.to_csv(f"{args.output}val_{fname}", index=False, header=True, sep="\t")
 

@@ -18,12 +18,12 @@ ent_ids = []
 
 def load_cat(vocab_path, cdb_path ):
     #https://metamap.nlm.nih.gov/Docs/SemanticTypes_2018AB.txt
-    # Sign or Symptom | T184
     # Laboratory or Test Result | T034
     # Health Care Activity | T058
     # Diagnostic Procedure | T060
     # Antibiotic | T195
     # Pharmacologic Substance | T121
+    # Sign or Symptom | T184
     # Disease or Syndrome | T047
     # Pathologic Function | T046
 

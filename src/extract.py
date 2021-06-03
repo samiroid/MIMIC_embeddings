@@ -9,15 +9,10 @@ import os
 from tadat.core import data
 from ipdb import set_trace
 
-STOP_WORDS = set(stopwords.words('english'))
-STOP_WORDS.remove("no")
-STOP_WORDS.remove("not")
 
 def clean_text(txt):
     ct = " [EOS] ".join([preprocess(t) for t in sent_tokenize(txt)]) 
     ct = " ".join([w.strip() for w in ct.split()])
-    # print(ct)
-    # set_trace()
     return ct
     
 def ethnicity_multi_labels(x):
@@ -73,36 +68,30 @@ def read_pheno(path):
     df['SUBJECT_ID'] = df['stay'].apply(get_patient_id)     
     return df
 
-def read_notes(path, patient_ids):
-    df_notes = pd.read_csv(path+"NOTEEVENTS.csv.gz")
-    df_notes["SUBJECT_ID"] = pd.to_numeric(df_notes["SUBJECT_ID"])
-    df_notes = df_notes.set_index("SUBJECT_ID")
-    #filter notes by category
-    df_notes = df_notes[df_notes["CATEGORY"].isin(["Physician ","Nursing","Nursing/other"])]
-    #filter by patient ids
-    df_notes = df_notes[df_notes.index.isin(patient_ids)]   
-    df_notes = df_notes.sort_values(by=["SUBJECT_ID","CHARTTIME"], ascending=False)
-    df_notes = df_notes.reset_index()[["SUBJECT_ID","TEXT"]]
-    df_notes["TEXT"] = df_notes["TEXT"].apply(clean_text)
-    # df_notes["len"] = df_notes["TEXT"].apply(lambda x:len(x))
-    # df_notes = df_notes[df_notes["len"] > 0]
-    df_notes = df_notes.groupby(["SUBJECT_ID"], as_index = False).agg({'TEXT': ' [EON] '.join})
-    return df_notes
+# def read_notes(path, patient_ids):
+#     df_notes = pd.read_csv(path+"NOTEEVENTS.csv.gz", low_memory=False)
+#     # set_trace()
+#     df_notes["SUBJECT_ID"] = pd.to_numeric(df_notes["SUBJECT_ID"])
+#     df_notes = df_notes.set_index("SUBJECT_ID")
+#     #filter notes by category
+#     df_notes = df_notes[df_notes["CATEGORY"].isin(["Physician ","Nursing","Nursing/other"])]
+#     #filter by patient ids
+#     df_notes = df_notes[df_notes.index.isin(patient_ids)]   
+#     df_notes = df_notes.sort_values(by=["SUBJECT_ID","CHARTTIME"], ascending=False)
+#     df_notes = df_notes.reset_index()[["SUBJECT_ID","TEXT"]]
+#     df_notes["TEXT"] = df_notes["TEXT"].apply(clean_text)
+#     # df_notes["len"] = df_notes["TEXT"].apply(lambda x:len(x))
+#     # df_notes = df_notes[df_notes["len"] > 0]
+#     df_notes = df_notes.groupby(["SUBJECT_ID"], as_index = False).agg({'TEXT': ' [EON] '.join})
+#     return df_notes
 
 def read_ALL_notes(path):
-    df_notes = pd.read_csv(path+"NOTEEVENTS.csv.gz")
+    df_notes = pd.read_csv(path+"NOTEEVENTS.csv.gz", low_memory=False)
     df_notes["SUBJECT_ID"] = pd.to_numeric(df_notes["SUBJECT_ID"])
     df_notes = df_notes.set_index("SUBJECT_ID")
-    #filter notes by category
-    # df_notes = df_notes[df_notes["CATEGORY"].isin(["Physician ","Nursing","Nursing/other"])]
-    # #filter by patient ids
-    # df_notes = df_notes[df_notes.index.isin(patient_ids)]   
     df_notes = df_notes.sort_values(by=["SUBJECT_ID","CHARTTIME"], ascending=False)
-    df_notes = df_notes.reset_index()[["SUBJECT_ID","TEXT"]]
-    df_notes["TEXT"] = df_notes["TEXT"].apply(clean_text)
-    # df_notes["len"] = df_notes["TEXT"].apply(lambda x:len(x))
-    # df_notes = df_notes[df_notes["len"] > 0]
-    df_notes = df_notes.groupby(["SUBJECT_ID"], as_index = False).agg({'TEXT': ' [EON] '.join})
+    df_notes["TEXT"] = df_notes["TEXT"].apply(clean_text)   
+    
     return df_notes
 
 def read_patients(mimic_path):
@@ -202,7 +191,7 @@ def save_tasks(df_ihm_train, df_ihm_test, df_pheno_train, df_pheno_test,
         with open(out_data_path+"tasks_{}.txt".format(i+1), "w") as fod:
             fod.write("\n".join(dataset_names[i*slice_size:(i+1)*slice_size]))
 
-def main(tasks_path, mimic_path, out_data_path, all_notes=False ):
+def main(tasks_path, mimic_path, out_data_path):
 
     in_hospital_train = tasks_path+"in_hospital_train.csv"
     in_hospital_test = tasks_path+"in_hospital_test.csv"
@@ -223,27 +212,49 @@ def main(tasks_path, mimic_path, out_data_path, all_notes=False ):
     df_patients = read_patients(mimic_path)
     df_patients = df_patients.reset_index()
     df_patients = df_patients[df_patients["SUBJECT_ID"].isin(patient_ids)]
+    df_patients.to_csv(out_data_path+"/tasks/demographics.csv", index=False, sep="\t", header=True)
     # patients with demographics
     patient_ids = list(set(df_patients["SUBJECT_ID"].tolist()))
     print("n patients: {}".format(len(patient_ids)))
 
     # %%
     # read and save notes
-    if all_notes:
-        print("ALL NOTES!")
-        if not os.path.exists(out_data_path+"all_full_notes.csv"):    
-            df_notes = read_ALL_notes(mimic_path)
-            df_notes.to_csv(out_data_path+"all_full_notes.csv", index=False, sep="\t", header=True)
-            df_patients.to_csv(out_data_path+"all_demographics.csv", index=False, sep="\t", header=True)
-    else:            
-        if os.path.exists(out_data_path+"full_notes.csv"):
-            df_notes = pd.read_csv(out_data_path+"full_notes.csv", sep="\t")
-        else:
-            df_notes = read_notes(mimic_path, patient_ids)
-            df_notes.to_csv(out_data_path+"full_notes.csv", index=False, sep="\t", header=True)
-        # patients with notes
-        patient_ids = list(set(df_notes["SUBJECT_ID"].tolist()))
-        print("n patients: {}".format(len(patient_ids)))
+    
+    #ALL NOTES
+    df_raw_notes = read_ALL_notes(mimic_path)
+    df_all_notes = df_raw_notes.reset_index()[["SUBJECT_ID","TEXT"]]
+    df_all_notes = df_all_notes.groupby(["SUBJECT_ID"], as_index = False).agg({'TEXT': ' [EOD] '.join})
+    df_all_notes.to_csv(out_data_path+"/notes/all_notes.csv", index=False, sep="\t", header=True)
+    print(f"len of all notes: {len(df_all_notes)}")
+    #PATIENT NOTES (i.e. notes from patients in the downstream tasks)
+    df_patient_notes = df_raw_notes[df_raw_notes.index.isin(patient_ids)]   
+    df_patient_notes = df_patient_notes.reset_index()[["SUBJECT_ID","TEXT"]]
+    df_patient_notes = df_patient_notes.groupby(["SUBJECT_ID"], as_index = False).agg({'TEXT': ' [EOD] '.join})
+    df_patient_notes.to_csv(out_data_path+"/notes/patient_notes.csv", index=False, sep="\t", header=True)
+    print(f"len of patient notes: {len(df_patient_notes)}")
+    #FILTERED PATIENT NOTES (i.e. filtered notes from patients in the downstream tasks)
+    df_filtered_notes = df_raw_notes[df_raw_notes.index.isin(patient_ids)]   
+    #filter notes by category
+    df_filtered_notes = df_filtered_notes[df_filtered_notes["CATEGORY"].isin(["Physician ","Nursing","Nursing/other"])]
+    df_filtered_notes = df_filtered_notes.reset_index()[["SUBJECT_ID","TEXT"]]
+    df_filtered_notes = df_filtered_notes.groupby(["SUBJECT_ID"], as_index = False).agg({'TEXT': ' [EOD] '.join})
+    df_filtered_notes.to_csv(out_data_path+"/notes/filtered_notes.csv", index=False, sep="\t", header=True)
+    print(f"len of filtered notes: {len(df_filtered_notes)}")
+    #save a smaller dataset
+    df_filtered_notes.head(200).to_csv(out_data_path+"/notes/mini_notes.csv", index=False, sep="\t", header=True)
+    #ids of patients with filtered notes 
+    patient_ids = list(set(df_filtered_notes["SUBJECT_ID"].tolist()))
+
+    # df_patients.to_csv(out_data_path+"all_demographics.csv", index=False, sep="\t", header=True)
+    # else:            
+    #     if os.path.exists(out_data_path+"full_notes.csv"):
+    #         df_notes = pd.read_csv(out_data_path+"full_notes.csv", sep="\t")
+    #     else:
+    #         df_notes = read_notes(mimic_path, patient_ids)
+    #         df_notes.to_csv(out_data_path+"full_notes.csv", index=False, sep="\t", header=True)
+    #     # patients with notes
+    #     patient_ids = list(set(df_notes["SUBJECT_ID"].tolist()))
+    #     print("n patients: {}".format(len(patient_ids)))
 
     # %%
     # save tasks data
@@ -277,7 +288,7 @@ def main(tasks_path, mimic_path, out_data_path, all_notes=False ):
 
     # %%
     save_tasks(df_ihm_train, df_ihm_test, df_pheno_demo_train, df_pheno_demo_test, out_data_path+"tasks/")
-    df_patients.to_csv(out_data_path+"demographics.csv", index=False, sep="\t", header=True)
+    
 
 def cmdline_args():
     parser = argparse.ArgumentParser(description="Extract MIMIC data ")
@@ -290,12 +301,15 @@ def cmdline_args():
     
 
 if __name__ == "__main__":
-    args = cmdline_args()
-    # mimic_path = "/Users/samir/Dev/resources/datasets/MIMIC/full/"
-    # tasks_path = "/Users/samir/Dev/projects/MIMIC_embeddings/raw_data/"
-    # out_data_path = "/Users/samir/Dev/projects/MIMIC_embeddings/DATA/input/"
-    
-    main(args.data, args.mimic, args.output, all_notes=True)
+    args = cmdline_args()    
+    dirname = os.path.dirname(args.output+"/tasks/")
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+    dirname = os.path.dirname(args.output+"/notes/")
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+
+    main(args.data, args.mimic, args.output)
     
     
         
