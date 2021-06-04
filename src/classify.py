@@ -259,7 +259,7 @@ def run(data_path, dataset, output_path, features, metric, pos_label=1):
 
 def clinical_probe(data_path, output_path, feature_type, metric):
     
-    tasks  = read_tasks(data_path+"/tasks/tasks.txt", True)
+    tasks  = read_tasks(data_path+"/tasks/tasks.txt", mini=True)
     for dataset in tasks:
         run(data_path, dataset, output_path, feature_type, metric)
 

@@ -5,6 +5,7 @@ DATA_PATH=$BASE_PATH"/DATA/probes"
 OUTPUT_PATH=$BASE_PATH"/DATA/probes/output/"
 FEATURES="U2V_user_embeddings"
 FEATURES="BOW-BIN"
+FEATURES="U2V_U_mean"
 # DATA_PATH = $BASE_PATH"/DATA/"
 
 # %%

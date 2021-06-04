@@ -5,13 +5,12 @@ BASE_PATH="/home/silvio/home/projects/MIMIC_embeddings/MIMIC_embeddings"
 EMBEDDINGS="/home/silvio/home/resources/BioWord2vec200.txt" 
 EMBEDDINGS="/home/silvio/home/resources/BioWordVec_PubMed_MIMICIII_d200.bin" 
 
-OUTPUT_PATH=$BASE_PATH"/DATA/embeddings/u2v/"
+OUTPUT_PATH=$BASE_PATH"/DATA/embeddings/u2v_debug/"
 INPUT=$BASE_PATH"/DATA/input/notes/u2v_filtered_notes.csv"
 
-DEVICE="cuda:1"
-ENCODER_TYPE="elmo"
-DEVICE="cpu"
 ENCODER_TYPE="fasttext"
+DEVICE="cuda:1"
+ENCODER_TYPE="bert"
 ENC_BATCH_SIZE=256
 
 BUILD=1
@@ -24,6 +23,7 @@ if (($BUILD > 0)); then
                             -encoder_batchsize $ENC_BATCH_SIZE \
                             -device $DEVICE \
                             -build \
+                            -max_docs_user 10 \
                             -encode 
 fi
 
