@@ -1,0 +1,15 @@
+{
+    "encoder_type":"elmo",
+    "pretrained_weights":"small",    
+    "run_id": "2",
+    "seed" : 426,     
+    "epochs": 20,
+    "val_split": 0.2,
+    "lr": 0.01,
+    "margin": 2,
+    "batch_size": 32
+}
+
+
+
+    

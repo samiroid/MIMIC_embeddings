@@ -1,15 +1,12 @@
 {
     "encoder_type":"bert",
-    "seed" : 426, 
     "pretrained_weights" : "base",
-    "encoder_batch_size" : 256,
-    "max_docs_user": 10,
-    "window_size" : 128,
+    "run_id": "2",
+    "seed" : 426,     
     "epochs": 20,
     "val_split": 0.2,
     "lr": 0.01,
     "margin": 2,
-    "run_id": "2",
     "batch_size": 32
 }
 
