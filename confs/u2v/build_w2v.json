@@ -1,0 +1,8 @@
+{
+"encoder_type":"w2v",
+"pretrained_weights" : "/home/silvio/home/resources/BioWord2vec200.txt" ,
+"emb_enc" : "utf-8",
+"seed" : 426, 
+"max_docs_user": 10,
+"window_size" : 128
+}

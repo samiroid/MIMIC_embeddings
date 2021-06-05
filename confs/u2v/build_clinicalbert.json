@@ -1,0 +1,9 @@
+{
+    "encoder_type":"bert",
+    "seed" : 426, 
+    "pretrained_weights" : "clinicalbert",
+    "encoder_batch_size" : 256,
+    "max_docs_user": 10,
+    "window_size" : 128
+    
+}

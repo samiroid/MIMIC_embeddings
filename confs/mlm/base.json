@@ -1,0 +1,18 @@
+{
+    "id": "base",
+    "random_seed": 7098,
+    "emb_size": 512,
+    "hidden_size": 512,
+    "nhead": 8,
+    "nlayers": 4,
+    "dropout": 0.5,
+    "lr": 0.0001,
+    "step_size": 1.0,
+    "clipgrad_norm":0.5,
+    "decay_gamma": 0.95,
+    "pin_memory": true,
+    "batch_size": 128,
+    "data_loader_workers": 4,
+    "epochs": 50,
+    "warmup_steps":10
+}
