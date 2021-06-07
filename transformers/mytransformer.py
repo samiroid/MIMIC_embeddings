@@ -104,7 +104,7 @@ class TransformerModel(nn.Module):
                 os.makedirs(dirname)
             print(f"saving train logs @ {self.train_log_path}")
             
-            self.tensorboard = SummaryWriter(f"{self.train_log_path}")
+            self.tensorboard = SummaryWriter(self.train_log_path)
         else:
             print("no train log")
             self.tensorboard = None

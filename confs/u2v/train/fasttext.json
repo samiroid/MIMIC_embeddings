@@ -1,0 +1,15 @@
+{
+    "encoder_type":"fasttext",
+    "pretrained_weights" : "/home/silvio/home/resources/BioWordVec_PubMed_MIMICIII_d200.bin" ,
+    "run_id":"base",
+    "seed" : 426,     
+    "epochs": 20,
+    "val_split": 0.2,
+    "lr": 0.01,
+    "margin": 2,
+    "batch_size": 128
+}
+
+
+
+    

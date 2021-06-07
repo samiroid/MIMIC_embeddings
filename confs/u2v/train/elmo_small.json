@@ -1,7 +1,6 @@
 {
     "encoder_type":"elmo",
-    "pretrained_weights":"small",    
-    "run_id": "2",
+    "pretrained_weights":"small",        
     "seed" : 426,     
     "epochs": 20,
     "val_split": 0.2,

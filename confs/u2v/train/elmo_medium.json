@@ -1,12 +1,12 @@
 {
     "encoder_type":"elmo",
     "pretrained_weights":"medium",    
-    "run_id": "2",
+    "run_id": "silvia",
     "seed" : 426,     
     "epochs": 20,
     "val_split": 0.2,
-    "lr": 0.01,
-    "margin": 2,
+    "lr": 10,
+    "margin": 10,
     "batch_size": 32
 }
 
