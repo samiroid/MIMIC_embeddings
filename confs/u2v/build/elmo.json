@@ -1,0 +1,7 @@
+{
+"encoder_type":"elmo",
+"pretrained_weights":"original",
+"seed" : 426, 
+"encoder_batch_size" : 256,
+"window_size" : 128
+}
