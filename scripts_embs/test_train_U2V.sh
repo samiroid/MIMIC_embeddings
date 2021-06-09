@@ -18,6 +18,6 @@ echo "## TRAINING WITH CONF " $CONF_NAME
 python -m u2v.run -output $OUTPUT_PATH \
                   -device $DEVICE \
                   -conf_path $CONF \
-                  -train \
-                  -reset_cache 
+                  -train 
+                  
                 
