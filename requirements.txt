@@ -1,3 +1,5 @@
 ipdb
 tensorboard
 git+https://github.com/ildoonet/pytorch-gradual-warmup-lr.git
+git+https://github.com/samiroid/tadat.git
+
